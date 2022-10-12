@@ -1,0 +1,23 @@
+# Fhl Data as a graph
+
+Organization:
+  sources:
+    FhlTest:
+      graph: RedisGraph
+      mapping: "
+        FROM FhlTest
+        (org:__Organization)
+        "
+  properties:
+    guid:
+      mapping: "{{ FhlTest.guid }}"
+    pretty_id:
+      mapping: "{{ FhlTest.pretty_id }}"
+    org_name:
+      mapping: "{{ FhlTest.org_name }}"
+    balance:
+      mapping: "TODO: how to map an aggregate"
+  edges:
+    ParentOf:
+
+    ChildOf:

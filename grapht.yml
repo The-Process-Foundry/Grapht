@@ -1,0 +1,76 @@
+# Model structure for how Grapht items relate
+
+Grapht:
+  desc: "
+    A singleton entity warehousing zero or more data sources as a graph. It manages connections and
+    caching of the remote data locally for rapid querying and modifying.
+
+    - Caching of query chunk results for faster requests (sorting, subsets, and the like)
+    - Queryable using GQL (in flux, so macros with versioning is essential)
+    - Hides syncing with remote sources
+    - FUTURE: Can be used as a distributed cache
+    "
+  fields:
+    backends:
+      desc: Communication widgets for interacting with remote data sources
+      type: Backend
+    nodes:
+      desc: All the nodes available in the graph
+      type: HashMap<Uuid, Arc<Node>>
+    edges:
+      desc: All the edges available in the graph
+    sets:
+      desc: Groups of pointers
+      type: QuerySet
+
+Backend:
+  desc: A remote server containing data sets
+  fields:
+    connection: Connection
+
+Connection:
+  desc: The code for sending pre-encoded data streams to and from remote sources
+  questions:
+    - Is this generic or specific? Not written here is written all over not using existing modules
+  fields:
+    - Socket- an enum for how to connect:
+      - URL
+      - Linux socket
+      - Text file
+
+  functions:
+    - open
+    - close
+    - send
+    - recv
+    - listen
+
+
+QuerySet:
+  desc: "
+    A set of pointers to nodes, edges, and indices. This is both used to store
+    "
+  properties:
+    guid:
+      desc: A unique identifier to look up
+      type: Uuid
+    query:
+      desc:
+      type: Option<GQuery>
+    nodes:
+
+Graph:
+  desc: A namespace/cache where a subset of nodes reside. If backend is None, the data included is
+    considered ephemeral.
+  fields:
+    name:
+      desc: A human readable string, uniquely naming the graph
+    sources:
+      desc: A storage backend
+      type: Vec<BackendImpl>
+
+Node:
+  desc: An atomic group of data.
+
+Edge:
+  desc: A relationship between two nodes

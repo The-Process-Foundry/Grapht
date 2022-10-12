@@ -1,0 +1,61 @@
+[package]
+authors = ["Dave Fogelson <dfogelson@theprocessfoundry.com>"]
+description = "A in-memory graph based data warehouse"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+name = "grapht"
+readme = "../README.md"
+repository = "https://github.com/The-Process-Foundry/grapht"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# Query object and language parser
+# gquery = {path = "../GQuery/gquery"}
+
+# Error Handling
+allwhat = {path = "../allwhat/core"}
+thiserror = "1.0.35"
+
+# Url handling
+url = "2.3.1"
+
+# Logging/Instrumentation
+tracing = "0.1.36"
+
+# Cypher Grammar parsers
+xmlparser = "0.13.3"
+
+# Serialization
+serde = {version = "1.0.144", features = ["derive"]}
+serde_json = "1.0.85"
+serde_yaml = "0.9.13"
+
+# A key value database/backend
+# redis = {version = "0.21.6", features = ["tokio-comp"]}
+
+# String Guid generaters
+uuid = {version = "1.1.2", features = ["v4", "v5", "serde", "js"]}
+
+# Using for any floats that need to be stored accurately
+rust_decimal = "1.26.1"
+rust_decimal_macros = "1.26.1"
+
+# Text parsing
+nom = "7.1.1"
+
+# Language processing w/ example code
+countme = "3.0.1"
+hashbrown = {version = "0.12", features = ["inline-more"], default-features = false}
+m_lexer = "0.0.4"
+memoffset = "0.6"
+rowan = "0.15.8"
+rustc-hash = "1.1.0"
+text-size = "1.1.0"
+
+lazy_static = "1.4.0"
+
+[dev-dependencies]
+# Logging output
+tracing-subscriber = {version = "0.3.15", features = ["env-filter", "json", "fmt", "std"]}

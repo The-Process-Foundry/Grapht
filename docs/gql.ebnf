@@ -1,0 +1,80 @@
+(*
+Copied from https://s3.amazonaws.com/artifacts.opencypher.org/website/materials/sql-pg-2018-0046r3-GQL-Scope-and-Features.pdf
+
+
+Here we provide a sketched outline of the high-level grammar of GQL, using ISO 14977
+(Extended BNF) notation [ISO14977], and typesetting keywords in bold face.
+ *)
+
+<request> := [<preamble>], ( <procedure> | <catalog procedure> ) ;
+
+<procedure> := <local declarations>, <procedure body> ;
+
+<local declarations> := { <local declaration> } ;
+
+<procedure body> := <composite statement>,
+{ <combinator>, <composite statement> } ;
+
+<composite statement> := <statement list> | <nested procedure> ;
+
+<statement list> := { <statement> }- ;
+
+<nested procedure> := '{', <procedure>, '}' ;
+
+<local declaration> := QUERY, <identifier>, [AS, '{', <procedure>, '}']
+| PATH, <identifier>, AS, <pattern>
+| GRAPH, <identifier>, [AS, '{', <procedure>, '}']
+| PARAM, <identifier>, AS, <expression>
+| ...
+;
+
+<statement> :=
+  [FROM <identifier> | <named procedure call>],
+  [OPTIONAL|MANDATORY] MATCH, <pattern>, [<WHERE>]
+  | CALL, <call arguments>, [ YIELD, <non-empty variable list> ]
+  | OPTIONAL, <call arguments>
+  | MANDATORY, <call arguments>
+  | WITH, <projection arguments>
+  | INSERT, <pattern>
+  | SET ...
+  | REMOVE ...
+  | [DETACH] DELETE, { <identifier> }-
+  | TRUNCATE, <identifier>
+  | RETURN, <projection arguments>
+  | ...
+;
+
+<where> := WHERE, <predicate> ;
+
+<call arguments> := <nested procedure>
+| <named procedure call>
+| <table name> ;
+
+<non-empty variable list> := <identifier> [AS <identifier>],
+{ ',', <identifier> [AS <identifier>] } ;
+
+<named procedure call> :=
+<identifier>, '(',
+[ <expression> { ',', <expression> } ]
+')' ;
+
+<projection arguments> :=
+{ <expression>, [AS, <identifier>] }-,
+[<where>]
+[<group by>],
+[<order by>],
+[<skip>],
+[<limit>] ;
+
+<catalog procedure> := <catalog statement list> ;
+
+<catalog statement list> := { <catalog statement> }- ;
+
+<catalog statement> :=
+CREATE, QUERY, <identifier>, [AS, '{', <procedure>, '}']
+| CREATE, PATH, <identifier>, [AS, '{', <pattern>, '}']
+| CREATE, SCHEMA, <schema>
+| CREATE, GRAPH, <identifier>, [AS, '{', <procedure>, '}']
+| ALIAS, <identifier>, TO, <identifier>
+| DROP, <identifier>,
+| RENAME, <identifier>, TO, <identifier>
