@@ -1,7 +1,7 @@
 //! Use an external copy of redis graph as a backend
 
 use super::Backend;
-use crate::local::*;
+use crate::{local::*, prelude::*};
 
 use redis::{FromRedisValue, RedisError, RedisResult, Value};
 use rust_decimal::Decimal;
@@ -63,7 +63,7 @@ impl RedisGraph {
   }
 
   /// Send a message
-  pub fn send_(&mut self, msg: &str) -> GraphtResult<QuerySet> {
+  pub fn send_(&mut self, msg: &str) -> GraphtResult<()> {
     // Parses and validates the message
     let query = GQuery::parse(msg)?;
 
@@ -81,7 +81,8 @@ impl RedisGraph {
     // info!("Finished Build. Processing result");
     // Let the redis module parse the result for now. Premature to write a custom parser
     let raw: RawValue = cmd.query(&mut conn)?;
-    raw.parse(&query)
+    raw.parse(&query);
+    Ok(())
   }
 }
 
@@ -371,7 +372,7 @@ pub mod result_ast {
     type Error = GQueryError;
 
     fn parse(value: &Vec<u8>) -> Result<Self, Self::Error> {
-      use crate::local::*;
+      use crate::{local::*, prelude::*};
       use nom::{
         // branch::alt,
         bytes::complete::{take, take_till, take_until},

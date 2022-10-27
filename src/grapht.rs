@@ -1,6 +1,6 @@
 //! A Grapht data store
 
-use crate::local::*;
+use crate::{local::*, prelude::*};
 use sync::mpsc::channel;
 
 pub struct Grapht<G>

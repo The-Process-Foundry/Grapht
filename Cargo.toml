@@ -16,27 +16,29 @@ version = "0.1.0"
 
 # Error Handling
 allwhat = {path = "../allwhat/core"}
-thiserror = "1.0.35"
+thiserror = "1.0.37"
 
 # Url handling
 url = "2.3.1"
 
 # Logging/Instrumentation
-tracing = "0.1.36"
+tracing = "0.1.37"
 
 # Cypher Grammar parsers
-xmlparser = "0.13.3"
+xmlparser = "0.13.5"
 
 # Serialization
-serde = {version = "1.0.144", features = ["derive"]}
-serde_json = "1.0.85"
+serde = {version = "1.0.145", features = ["derive"]}
+serde_json = "1.0.86"
 serde_yaml = "0.9.13"
 
 # A key value database/backend
-# redis = {version = "0.21.6", features = ["tokio-comp"]}
+# This is not compatible with WASM so we disable it when not directly working with the database
+# - mio cannot find crate::sys::IoSourceState
+# redis = {version = "0.22.1", features = ["tokio-comp"]}
 
 # String Guid generaters
-uuid = {version = "1.1.2", features = ["v4", "v5", "serde", "js"]}
+uuid = {version = "1.2.1", features = ["v4", "v5", "serde", "js"]}
 
 # Using for any floats that need to be stored accurately
 rust_decimal = "1.26.1"
@@ -49,8 +51,8 @@ nom = "7.1.1"
 countme = "3.0.1"
 hashbrown = {version = "0.12", features = ["inline-more"], default-features = false}
 m_lexer = "0.0.4"
-memoffset = "0.6"
-rowan = "0.15.8"
+memoffset = "0.7"
+rowan = "0.15.10"
 rustc-hash = "1.1.0"
 text-size = "1.1.0"
 
@@ -58,4 +60,7 @@ lazy_static = "1.4.0"
 
 [dev-dependencies]
 # Logging output
-tracing-subscriber = {version = "0.3.15", features = ["env-filter", "json", "fmt", "std"]}
+tracing-subscriber = {version = "0.3.16", features = ["env-filter", "json", "fmt", "std"]}
+
+# Connect to Redis DB - this is temporary until I can get backends working
+redisgraph = {path = "../External/redisgraph-rs"}

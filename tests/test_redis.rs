@@ -1,5 +1,6 @@
 //! Test the redis backend
 
+/*
 use grapht::prelude::*;
 
 #[macro_use]
@@ -18,8 +19,6 @@ db_test_fn! {
   }
 }
 
-/*
-
 db_test_fn! {
 fn test_redis() {
   // let db: Grapht<FhlGraph> = Grapht::new();
@@ -27,13 +26,52 @@ fn test_redis() {
   // register the backend (Definition of the redis backend data)
   // db.add_backend(REDIS_DB, RedisGraph::new(REDIS_URL));
 
-  // Get the existing data set - all orgs and their relationship to each other
-  let data_set = db.query(r#"
-    MATCH (:__Organization)-[r:__ParentOf|__ChildOf*0..1)-(org:__Organization)
-    RETURN (n, r)
-  "#).expect("Query did not successfully retrieve a data set");
+
+  // Connect to the redis database
+  use redisgraph::{Graph as RGraph};
+
+  let client = redis::Client::open(REDIS_URL).expect("Couldn't create a redis Client for localhost");
+  let mut conn: redis::Connection = client.get_connection().expect("Couldn't get connection to local redis");
+
+  let mut graph = RGraph::open(conn, REDIS_DB.to_string()).expect(&format!("Couldn't connect to the graph {}", REDIS_DB));
+  // Drop the old copy of the graph
+  graph.delete().expect("Couldn't drop the old graph");
+
+  // And recreate it
+  conn = client.get_connection().expect("Couldn't get connection to local redis");
+  graph = RGraph::open(conn, REDIS_DB.to_string()).expect(&format!("Couldn't connect to the graph {}", REDIS_DB));
+
+
+  // Create a new data set
+  let mut data_set = DataSet::<FhlGraph>::new();
+  let res = FhlGraph::bootstrap(&mut data_set);
+  info!("Finished Bootstraping the graph");
+
+  // Convert the bootstrapped data into an insert query
+  let root_org_query = "(node:__Organization)->[ParentOf*0]->()";
+  let root_orgs = data_set.nodes(root_org_query).expect(&format!("Failed to query nodes matching {}", root_org_query));
+  info!("Received {} nodes from the query", root_orgs.len());
+
+  for org in root_orgs {
+    let insert = org.to_create(None).expect(&format!("Couldn't convert org {} to gql", org.get_guid()));
+
+    let result = graph.mutate(&insert);
+    info!("{:?}\n\n\n----\n", result);
+  }
+
+
+  // Query the root orgs
+  // "MATCH (org:__Organization) WHERE NOT (org)-[:__ChildOf]->(:__Organization) RETURN org"
+
+
+
+  // // Get the existing data set - all orgs and their relationship to each other
+  // let data_set = db.query(r#"
+  //   MATCH (:__Organization)-[r:__ParentOf|__ChildOf*0..1)-(org:__Organization)
+  //   RETURN (n, r)
+  // "#).expect("Query did not successfully retrieve a data set");
 }}
-*/
+ */
 
 /*
   **All items should use temporary exact string matches instead of parsing. Grammars come once PivoTable can actually display the org data as requested.**

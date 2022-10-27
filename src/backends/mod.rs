@@ -4,12 +4,11 @@
 //! turns it into a queryable graph, so it must know how to speak multiple languages.
 
 use super::prelude::*;
-use crate::local::*;
+use crate::{local::*, prelude::*};
 
 pub mod backend;
 // pub use Backend;
 
-/*
 pub trait Backend {
   type RawResponse;
 
@@ -48,7 +47,6 @@ pub trait Backend {
     unimplemented!("Backend Query")
   }
 }
- */
 
 /// A driver for communicating with a specific type of data source
 // pub trait Backend {

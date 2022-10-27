@@ -3,19 +3,20 @@
 use super::*;
 use crate::err;
 
+use crate::local::sync::Arc;
+
 use std::{
   collections::{
     hash_map::{DefaultHasher, Entry},
     HashMap,
   },
   hash::{Hash, Hasher},
-  sync::{Arc, RwLock},
 };
 
 use uuid::Uuid;
 
 /// Definition of a relationship between to nodes, from target to source
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Edge<G>
 where
   G: Graph,
@@ -31,6 +32,21 @@ where
 
   /// An optional weight that can be used for sorting
   options: EdgeOpts,
+}
+
+impl<G> fmt::Debug for Edge<G>
+where
+  G: Graph,
+{
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("Edge")
+      .field("guid", &self.guid)
+      .field("source", &self.source.get_guid())
+      .field("target", &self.target.get_guid())
+      .field("properties", &self.properties)
+      .field("options", &self.options)
+      .finish()
+  }
 }
 
 impl<G> Edge<G>
@@ -50,11 +66,6 @@ where
   pub fn get_guid(&self) -> Uuid {
     self.guid.clone()
   }
-}
-impl<G> Edge<G>
-where
-  G: Graph,
-{
   fn make_guid(source: Uuid, target: Uuid, key: Uuid) -> Uuid {
     let mut hasher = DefaultHasher::new();
     hasher.write(source.as_bytes());
@@ -65,6 +76,10 @@ where
 
   pub fn get_key(&self) -> Uuid {
     self.properties.get_key()
+  }
+
+  pub fn get_label(&self) -> String {
+    self.properties.get_type_label()
   }
 
   pub fn get_source(&self) -> Node<G> {
@@ -107,17 +122,17 @@ where
 #[derive(Debug, Clone)]
 pub struct EdgeOpts {
   /// An optional weight that can be used order similar edges
-  weight: Option<f32>,
+  _weight: Option<f32>,
 
   /// Whether there is a reciprocal edge going from target to source
-  direction: EdgeDirection,
+  _direction: EdgeDirection,
 }
 
 impl EdgeOpts {
   pub fn new() -> EdgeOpts {
     EdgeOpts {
-      weight: None,
-      direction: EdgeDirection::OneWay,
+      _weight: None,
+      _direction: EdgeDirection::OneWay,
     }
   }
 }
@@ -128,7 +143,11 @@ impl EdgeOpts {
 /// we can use the edge to go from target to source, if needed.
 #[derive(Clone, Debug)]
 pub enum EdgeDirection {
-  /// This edge goes only one way
+  /// The edge can only be traversed in one direction
+  ///
+  /// This is used in situations where the context matters. For example, in a parent/child
+  /// relationship between two people the edge is what determines which is the parent and which is
+  /// the child.
   OneWay,
 
   /// An edge that can also start from the target and go to the source.
@@ -159,6 +178,16 @@ where
     EdgeMap {
       by_label: HashMap::new(),
     }
+  }
+
+  pub fn all(&self) -> Vec<Edge<G>> {
+    let mut result = Vec::new();
+    for values in self.by_label.values() {
+      for value in values.values() {
+        result.push(value.clone())
+      }
+    }
+    result
   }
 
   pub fn find_all(&self, matcher: &str) -> Vec<Edge<G>> {

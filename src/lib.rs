@@ -7,41 +7,50 @@
 /// Cypher Errors
 pub mod errors;
 
-// pub mod backends;
-
-// pub mod connection;
-
+// Graph objects and their components
 pub mod model;
 
-pub mod data;
+// Statistics about the state of data
+pub mod stats;
 
-pub mod grapht;
+// In-memory cache of queryable data
+pub mod store;
 
-// AST for building queries
-pub mod gquery;
+// Transport layer for communicating with remote servers
+// pub mod connection;
+
+// Drivers for remote sources
+// pub mod backends;
+
+// The module responsible for synthesizing and synchronizing non-local data
+// pub mod grapht;
+
+// The query language syntax tree
+// pub mod gquery;
 
 // Subscription messaging
 // pub mod messages;
 
 // ASTs for some known query languages
-pub mod grammars;
+// pub mod grammars;
 
 pub mod prelude {
   pub use crate::{
-    // backends,
-    // connection::Pool,
-    data::{dataset::*, stats::*},
     err,
     err_into,
     errors::{GraphtError, Kind, Result as GraphtResult},
-    grapht::Grapht,
+    // grapht::Grapht,
     model::*,
+    stats::*,
+    // backends,
+    // connection::Pool,
+    store::{dataset::*, index::*, value::*},
   };
 }
 
 /// Toggles std and alternate implementations that are used throughout the crate
 mod local {
-  pub use crate::prelude::*;
+  // pub use crate::prelude::*;
   pub use crate::{err as grapht_err, err_into};
 
   // Prefer using core vs std

@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use uuid::Uuid;
 
-pub use crate::local::*;
+pub use crate::{local::*, prelude::*};
 
 mod api_endpoint;
 pub use api_endpoint::ApiEndpoint;

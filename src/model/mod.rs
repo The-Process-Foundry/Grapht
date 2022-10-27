@@ -1,11 +1,6 @@
-//! A local data store for all known remote data as well as locally generated ephemeral data
-//!
-//! The store acts as a queryable data warehouse, keeping as much locally as seems reasonable. The
-//! goal for this is to cut down network traffic in cases where having external dedicated services
-//! updating the data is overkill for the current action. For example, sorting the data in a table
-//! makes more sense to do onsite rather than re-download everything again in a new order.
+//! The implementations for a graph and its relationships
 
-use crate::local::*;
+use crate::{local::*, prelude::*};
 
 pub mod node;
 pub use node::Node;

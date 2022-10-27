@@ -2,7 +2,7 @@
 //!
 //! These are the messages that are sent via channel between DataSets and the central Grapht store
 
-use crate::local::*;
+use crate::{local::*, prelude::*};
 use sync::mpsc::{channel, Sender};
 
 use uuid::Uuid;

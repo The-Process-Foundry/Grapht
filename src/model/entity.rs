@@ -1,10 +1,6 @@
 //! An entity is the payload of individual graph item, node or edge.
-//!
-//!
 
 use crate::{local::*, prelude::*};
-
-use sync::{Arc, RwLock};
 
 use std::borrow::Cow;
 use uuid::Uuid;
@@ -53,7 +49,7 @@ impl GraphtEntity for () {
     Ok(String::new())
   }
 
-  fn from_gql(value: &[u8]) -> GraphtResult<Self> {
+  fn from_gql(_value: &[u8]) -> GraphtResult<Self> {
     todo!()
   }
 }

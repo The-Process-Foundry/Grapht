@@ -1,12 +1,9 @@
 //! A sequence of nodes connected to nodes via edges
 
 use crate::err;
-use crate::local::*;
+use crate::{local::*, prelude::*};
 
-use std::{
-  collections::{hash_map::DefaultHasher, HashSet},
-  hash::Hasher,
-};
+use std::{collections::hash_map::DefaultHasher, hash::Hasher};
 
 use uuid::Uuid;
 
@@ -25,7 +22,7 @@ pub struct Path<G>
 where
   G: Graph,
 {
-  config: Option<PathConfig>,
+  _config: Option<PathConfig>,
   guid: Uuid,
   steps: Vec<PathStep<G>>,
 }
@@ -37,7 +34,7 @@ where
   pub fn new(start: Option<Node<G>>, steps: Vec<Edge<G>>) -> Path<G> {
     // Create an empty path
     let mut path = Path {
-      config: None,
+      _config: None,
       guid: NIL_PATH_GUID.clone(),
       steps: vec![PathStep::Nil],
     };
@@ -184,5 +181,5 @@ impl<G> PathStep<G> where G: Graph {}
 pub struct PathConfig {
   /// A query that sets bounds of the path
   /// TODO: This should be a gQuery
-  query: String,
+  _query: String,
 }

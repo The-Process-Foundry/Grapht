@@ -6,7 +6,7 @@ use grapht::{err, prelude::*};
 mod common;
 use common::invoicer::*;
 
-use rust_decimal::Decimal;
+// use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use tracing::{debug, info};
 
@@ -27,55 +27,88 @@ use tracing::{debug, info};
     - Aggregates
 */
 
+//
+macro_rules! node {
+  ($graph:ty, $node_type:ident, $($param:expr),+) => {
+    Node::<$graph>::new($node_type::new($($param), +).into())
+  };
+}
+
 db_test_fn! {
   fn test_create_nodes() {
     let mut data_set: DataSet<FhlGraph> = DataSet::new();
-    let mut expected = Stats::default();
+    let mut data_set_stats = Stats::default();
+    let mut insert_stats = Stats::default();
 
+    // Data Set is totally empty
+    assert_eq!(data_set.stats(), data_set_stats);
 
-    // We will create 3 new labels to go with the type
+    // Create a root org
+    let mut root: Node<FhlGraph> = node!(FhlGraph, Organization, "RootNode", "Ruler of all the Nodes", dec!(0));
 
-    // Create 10 nodes and insert them individually, showing that it works
-    let mut orgs: Vec<Node<FhlGraph>> = Vec::new();
-    for i in 1..10 {
-      let mut org =
-      Node::new(FhlNode::Organization(Organization::new(
-        &format!("pretty_{}", i)[..],
-        &format!("Org {}", i)[..],
-        dec!(0),
-      )));
+    root.add_label("RootOrganization");
 
-      // Add an extra label, so we can see
-      let _ = org.add_label(&format!("Test_Label_{}", i % 3));
-      orgs.push(org.clone());
-    }
+    // And insert it
+    let result = data_set.insert(root.clone().into()).expect("Failed to insert the root node");
+    insert_stats.nodes.created = 1;
+    insert_stats.labels.created = 2;
+    assert_eq!(result, insert_stats);
 
-    for i in 0..9 {
-      let org = orgs.get(i).unwrap();
+    data_set_stats.nodes.created = 1;
+    data_set_stats.labels.created = 2;
+    assert_eq!(data_set.stats(), data_set_stats);
 
-      // let result = data_set.insert(GraphItem::Node(org));
-      let result = data_set.insert(org.clone());
-
-      expected.nodes.created = 1;
-      assert_eq!(expected, result.expect("Received an error inserting a new node"));
-
-      expected.nodes.created = (i + 1) as u128;
-      assert_eq!(expected, data_set.stats(), );
-
-    }
-
-    // Adding duplicate returns error (duplicate key)
-    for org in &orgs {
-      assert_eq!(
-        data_set.insert(org.clone()),
+    // Attempt to insert it again and show its a duplicate
+          assert_eq!(
+        data_set.insert(root.clone().into()),
         Err(err!(
           DuplicateKey,
           "Node with Uuid {} already exists in the graph {}",
-          org.get_guid(),
+          root.get_guid(),
           data_set.get_guid()
         ))
       );
-    }
+
+
+    // Add a single child with an edge from the root
+
+    // Try to Insert root again and still a duplicate
+
+    // Add the edge, and both edge and child are now in the set
+
+    // Make a child with the root with 10 grandchildren, add the edge root->child to add all of them
+
+    // Make an empty set
+
+    // Add root - stats should be the same as the previous item
+
+
+  //   for i in 0..9 {
+  //     let org = orgs.get(i).unwrap();
+
+  //     // let result = data_set.insert(GraphItem::Node(org));
+  //     let result = data_set.insert(org.clone());
+
+  //     expected.nodes.created = 1;
+  //     assert_eq!(expected, result.expect("Received an error inserting a new node"));
+
+  //     expected.nodes.created = (i + 1) as u128;
+  //     assert_eq!(expected, data_set.stats(), );
+
+  //   }
+
+  //   // Adding duplicate returns error (duplicate key)
+  //   for org in &orgs {
+  //     assert_eq!(
+  //       data_set.insert(org.clone()),
+  //       Err(err!(
+  //         DuplicateKey,
+  //         "Node with Uuid {} already exists in the graph {}",
+  //         org.get_guid(),
+  //         data_set.get_guid()
+  //       ))
+  //     );
+  //   }
   }
 }
 
@@ -101,8 +134,9 @@ db_test_fn! {
     // Empty data set
     assert_eq!(data_set.stats(), expected);
 
+    expected.nodes.created = 1;
     // Now create child orgs for each
-    for i in 1..9 {
+    for _i in 1..9 {
       // let result =
     }
 
@@ -125,16 +159,19 @@ db_test_fn! {
 }
 
 db_test_fn! {
+  fn test_insert() {
+
+  }
+}
+
+db_test_fn! {
   fn test_create_paths() {
-    let data_set: DataSet<FhlGraph> = DataSet::new();
+    let _data_set: DataSet<FhlGraph> = DataSet::new();
 
   }
 }
 
 db_test_fn! {
 fn test_query_orgs() {
-  let data_set: DataSet<FhlGraph> = DataSet::new();
-
-
-;
+  let _data_set: DataSet<FhlGraph> = DataSet::new();
 }}

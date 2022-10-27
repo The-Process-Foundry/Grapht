@@ -1,6 +1,6 @@
 //! Implementation of a node in a graph
 
-use crate::local::*;
+use crate::{local::*, prelude::*};
 use sync::{Arc, RwLock};
 
 use std::collections::{
@@ -36,6 +36,15 @@ where
   guid: Uuid,
 
   inner: Arc<RwLock<InnerNode<G>>>,
+}
+
+impl<G> PartialEq for Node<G>
+where
+  G: Graph,
+{
+  fn eq(&self, other: &Self) -> bool {
+    self.guid == other.guid
+  }
 }
 
 impl<G> Node<G>
@@ -79,20 +88,40 @@ where
 
   // ---- Edge/Path functions
   /// Create a relationship between the current node and the target using the given payload
-  pub fn add_edge(&mut self, target: Node<G>, props: G::Edge) -> GraphtResult<Edge<G>> {
+  pub fn create_edge(&mut self, props: G::Edge, target: Node<G>) -> GraphtResult<Edge<G>> {
     // Create the new edge from current node to the target
     let edge: Edge<G> = Edge::new(&self, &target.into(), props.into());
 
-    // Add the new edge to the map by its label
-    let mut inner = self.inner.write().unwrap();
-    inner.edges.insert(edge.clone())?;
+    self.add_edge(edge.clone())?;
     Ok(edge)
   }
 
-  pub fn edges_by_label(&self, matcher: &str) -> Vec<Edge<G>> {
-    let inner = self.inner.read().unwrap();
-    inner.edges.find_all(&matcher)
+  pub(crate) fn add_edge(&mut self, edge: Edge<G>) -> GraphtResult<()> {
+    // Add the new edge to the map by its label
+    let mut inner = self.inner.write().unwrap();
+    inner.edges.insert(edge.into())?;
+    Ok(())
   }
+
+  /// Retrieve a list of all the edges connecting this node
+  ///
+  /// FIXME: Make the query mean something
+  pub fn edges(&self, _query: &str) -> Vec<Edge<G>> {
+    self
+      .inner
+      .read()
+      .unwrap()
+      .edges
+      .all()
+      .iter()
+      .map(|x| x.into())
+      .collect()
+  }
+
+  // pub fn find_edges(&self, filter: &str) -> Vec<Edge<G>> {
+  //   let inner = self.inner.read().unwrap();
+  //   inner.edges.find_all(filter)
+  // }
 
   /// Get all related entities via any path
   /// THINK: Is this different than matching a wildcard path
@@ -115,20 +144,24 @@ where
   }
 
   /// make a CREATE query for all node and all related edges and nodes
-  pub fn to_create(&self, max_depth: Option<u16>) -> GraphtResult<String> {
+  ///
+  /// FIXME: This needs to move into the GQuery AST. It should take a query result such as
+  /// "(nodes)->[edges *0..]" and then all the named spots are decomposed into a distinct list of
+  /// nodes, edges, and paths. From there, its a simple iteration to make the create query string.
+  pub fn to_create(&self, _max_depth: Option<u16>) -> GraphtResult<String> {
     // Track the tags and nodes seen
     let mut counter = EntityCounter::new();
     // All the created node strings
     let mut nodes: Vec<String> = Vec::new();
 
     // Edge info
-    let labels = vec!["__OrganizationParent"];
+    // let labels = self.get_labels();
     let mut edges: Vec<Edge<G>> = Vec::new();
 
     // A queue of nodes that haven't been run yet
     let mut unprocessed = vec![self.clone()];
 
-    while unprocessed.len() != 0 {
+    while !unprocessed.is_empty() {
       if let Some(node) = unprocessed.pop() {
         // Get the tag and continue if it's already been created
         let tag = match counter.get_tag("Organization", node.get_guid()) {
@@ -136,16 +169,13 @@ where
           (true, tag) => tag,
         };
 
-        // Render the node
-        info!("Created new tag {:?}", tag);
+        // Add the node to processed
         nodes.push(node.to_gql(Some(&tag))?);
 
-        // Add all the edges to edges
-        for label in &labels {
-          for edge in node.edges_by_label(label.clone()) {
-            unprocessed.push(edge.get_target());
-            edges.push(edge);
-          }
+        // Add all the edges their targets to the unprocessed queue
+        for edge in node.edges("()->[]") {
+          unprocessed.push(edge.get_target());
+          edges.push(edge);
         }
       }
     }
@@ -158,11 +188,13 @@ where
     for edge in edges {
       // Now we append all the edges
       query = format!(
-        "{}, ({})-[:OrganizationParent]->({})",
+        "{}, ({})-[:{} {}]->({})",
         query,
         counter
           .get_tag("Organization", edge.get_source().get_guid())
           .1,
+        edge.get_label(),
+        edge.get_properties().to_gql()?,
         counter
           .get_tag("Organization", edge.get_target().get_guid())
           .1
@@ -228,9 +260,9 @@ impl EntityCounter {
   }
 }
 
-/// Wrapped contents of a node
+/// Internal contents of a node
 #[derive(Debug, Clone)]
-pub struct InnerNode<G>
+pub(crate) struct InnerNode<G>
 where
   G: Graph,
 {
@@ -244,7 +276,7 @@ where
   pub(self) labels: HashSet<String>,
 
   /// A lookup for the edges that have this node as a starting point
-  pub(self) edges: EdgeMap<G>,
+  pub(self) edges: Lookup<G>,
   // Calculations based on the current values of the node and its edges
   // pub(self) aggregates: HashMap<String, Aggregate>,
 }
@@ -261,10 +293,11 @@ where
     InnerNode {
       properties: Arc::new(props),
       labels,
-      edges: EdgeMap::new(),
+      edges: Lookup::new(Index::Edge("Self".to_string())),
     }
   }
 
+  /*
   pub fn has_label(&self, label: &str) -> bool {
     self.labels.contains(label)
   }
@@ -277,6 +310,11 @@ where
     self.labels.remove(label)
   }
 
+  /// Add an already created edge to the node
+  pub fn add_edge_unchecked(&mut self, edge: Edge<G>) -> GraphtResult<()> {
+    self.edges.insert(edge.into())
+  }
+
   pub fn type_label(&self) -> String {
     self.properties.get_type_label()
   }
@@ -284,4 +322,5 @@ where
   pub fn get_props(&self) -> Arc<G::Node> {
     self.properties.clone()
   }
+  */
 }
