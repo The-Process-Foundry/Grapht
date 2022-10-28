@@ -1,4 +1,4 @@
-//! A mutable subset used for working with items in the data store
+//! A wrapper for scanning, indexing, querying, and mutating items in a graph
 //!
 //! TODO:
 //! - Ordered subsets
@@ -34,8 +34,8 @@ where
   // -----    Thinking/YAGNI items
   /// Statistics about the current DataSet
   ///
-  /// Eventually, This should be items like memory usage, cache hits/misses
-  /// THINK: Is this needed or is it fast enough to be run dynamically?
+  /// Eventually, This should be items like memory usage, cache hits/misses, and other cumulative
+  /// stats in addition to the basic counts
   _stats: (),
 
   /// A consolidated patch query to to bring Grapht up to date with
@@ -137,8 +137,8 @@ where
         }
 
         Value::Edge(edge) => {
-          let index = Index::Edge(edge.get_type_label());
           // Skip if the edge already exists if the edge already exists.
+          let index = Index::Edge(edge.get_type_label());
           if self.indices.contains(&index, &edge.get_guid()) {
             debug!(
               "Skipping repeat edge {} {}",
@@ -148,43 +148,22 @@ where
             continue;
           };
 
-          // First, we ensure that both source and target are in the data set before starting
-          // let mut missing_nodes = Vec::new();
-          // let source = edge.get_source();
-          // if !self.nodes.contains_key(&source.get_guid()) {
-          //   missing_nodes.push(source.into());
-          // }
-
-          // let target = edge.get_target();
-          // if !self.nodes.contains_key(&target.get_guid()) {
-          //   missing_nodes.push(target.into());
-          // }
-
-          // If either source or target node is missing, we requeue the edge to try again later
-
-          // Insert the source node. If it already in the data set, only add the edge to it
-          // match self.nodes.get(&source.get_guid()) {
-          //   Some(node) => {
-          //     let mut node = node.clone();
-          //     node.add_edge(edge.clone());
-          //     self.update_node_unchecked(node.clone())?;
-          //   }
-          //   None => {
-          //     match self.insert_node(source) {
-          //       Err(err) => match err.is(Kind::DuplicateKey) {
-          //         true => unreachable!(""),
-          //         false => return Err(err),
-          //       },
-          //       Ok(value_stats) => stats += value_stats,
-          //     };
-          //   }
-          // };
-
-          // index the
-
-          // And make sure the target node exists as well
+          // Add the edge to the source node if it exists, otherwise just add to unprocessed
+          let source = edge.get_source();
+          match self.nodes.get(&source.get_guid()) {
+            Some(node) => {
+              let mut node = node.clone();
+              node.add_edge(edge.clone())?;
+              self.update_node_unchecked(node.clone())?;
+            }
+            None => {
+              unprocessed.push(source.into());
+              continue;
+            }
+          };
         }
 
+        // Simply convert the path to edges and trailing node and let it be processed normally
         Value::Path(_) => todo!("Cannot insert paths yet"),
       };
     }
@@ -219,7 +198,7 @@ where
   }
 
   /// Replace an existing node with the current one without internal validation
-  pub(crate) fn _update_node_unchecked(&mut self, node: Node<G>) -> GraphtResult<()> {
+  pub(crate) fn update_node_unchecked(&mut self, node: Node<G>) -> GraphtResult<()> {
     // let mut stats = Stats::new();
     match self.nodes.entry(node.get_guid()) {
       Entry::Vacant(_) => {

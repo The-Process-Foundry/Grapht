@@ -44,30 +44,33 @@ db_test_fn! {
     assert_eq!(data_set.stats(), data_set_stats);
 
     // Create a root org
-    let mut root: Node<FhlGraph> = node!(FhlGraph, Organization, "RootNode", "Ruler of all the Nodes", dec!(0));
+    let mut root: Node<FhlGraph> = node!(
+      FhlGraph, Organization, "RootNode", "Ruler of all the Nodes", dec!(0)
+    );
 
     root.add_label("RootOrganization");
 
     // And insert it
     let result = data_set.insert(root.clone().into()).expect("Failed to insert the root node");
     insert_stats.nodes.created = 1;
-    insert_stats.labels.created = 2;
-    assert_eq!(result, insert_stats);
+    // insert_stats.labels.created = 2;
+    insert_stats.assert_eq(&result);
+
 
     data_set_stats.nodes.created = 1;
-    data_set_stats.labels.created = 2;
-    assert_eq!(data_set.stats(), data_set_stats);
+    // data_set_stats.labels.created = 2;
+    data_set_stats.assert_eq(&data_set.stats());
 
     // Attempt to insert it again and show its a duplicate
-          assert_eq!(
-        data_set.insert(root.clone().into()),
-        Err(err!(
-          DuplicateKey,
-          "Node with Uuid {} already exists in the graph {}",
-          root.get_guid(),
-          data_set.get_guid()
-        ))
-      );
+    assert_eq!(
+      data_set.insert(root.clone().into()),
+      Err(err!(
+        DuplicateKey,
+        "Node with Uuid {} already exists in the graph {}",
+        root.get_guid(),
+        data_set.get_guid()
+      ))
+    );
 
 
     // Add a single child with an edge from the root

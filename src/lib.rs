@@ -4,8 +4,11 @@
 //! for generating queries programattically, and an Abstract Syntax Tree for building querying one's
 //! own graphs.
 
-/// Cypher Errors
+// Cypher Errors
 pub mod errors;
+
+// Getting the difference between to objects
+pub mod utils;
 
 // Graph objects and their components
 pub mod model;
@@ -42,9 +45,10 @@ pub mod prelude {
     // grapht::Grapht,
     model::*,
     stats::*,
+    store::{dataset::*, index::*, value::*},
     // backends,
     // connection::Pool,
-    store::{dataset::*, index::*, value::*},
+    utils::*,
   };
 }
 

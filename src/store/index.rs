@@ -3,7 +3,7 @@
 use crate::{local::*, prelude::*};
 
 use std::{
-  collections::{HashMap, HashSet},
+  collections::{hash_map::Entry, HashMap, HashSet},
   hash::Hash,
 };
 use uuid::Uuid;
@@ -163,8 +163,19 @@ where
     if !self.lookups.contains_key(key) {
       let _ = self.lookups.insert(key.clone(), Lookup::new(key.clone()));
       match key {
-        Index::Label(_) => stats.labels.created += 1,
-        _ => stats.indices.created += 1,
+        Index::Label(value) | Index::Tag(value) => {
+          let mut mutation = Mutations::new();
+          mutation.created = 1;
+          stats.indices.labels.total += mutation.clone();
+          match stats.indices.labels.labels.entry(value.clone()) {
+            Entry::Vacant(entry) => {
+              entry.insert(mutation);
+            }
+            Entry::Occupied(mut entry) => *entry.get_mut() += mutation,
+          }
+          stats.indices.labels.total.created += 1;
+        }
+        _ => todo!("No stats ready except for Label"),
       }
     };
 
@@ -176,6 +187,10 @@ where
   /// Remove all references of the given value from each index
   pub fn remove_value(&mut self, _value: Value<G>) -> GraphtResult<()> {
     todo!("Indices::remove_value")
+  }
+
+  pub fn stats(&self) -> IndexStats {
+    todo!("Index Stats")
   }
 }
 
