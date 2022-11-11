@@ -45,7 +45,7 @@ pub mod prelude {
     // grapht::Grapht,
     model::*,
     stats::*,
-    store::{dataset::*, index::*, value::*},
+    store::*,
     // backends,
     // connection::Pool,
     utils::*,

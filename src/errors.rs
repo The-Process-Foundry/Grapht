@@ -1,6 +1,10 @@
 //! Parsing errors
 
-use crate::local::*;
+use crate::{local::*, utils::diff::*};
+
+use std::collections::HashMap;
+
+use sync::PoisonError;
 
 use allwhat::ErrorGroup;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -34,6 +38,11 @@ impl GraphtError {
   /// Quick matcher for determining the general kind of error
   pub fn is(&self, kind: Kind) -> bool {
     self.kind == kind
+  }
+
+  /// A shortcut to asking if is a DuplicateKey error
+  pub fn is_dupe(&self) -> bool {
+    self.is(Kind::DuplicateKey)
   }
 
   pub fn comment(mut self, comment: String) -> GraphtError {
@@ -117,6 +126,9 @@ pub enum Kind {
 
   #[error("XML Parsing Error")]
   XmlError,
+
+  #[error("The data structure cannot be trusted any more and requires manual intervention")]
+  PoisonError,
 }
 
 impl Kind {
@@ -143,6 +155,19 @@ impl PartialEq for Kind {
     match (self, other) {
       (Self::ErrorList(_), Self::ErrorList(_)) => todo!("Figure out how to match error lists"),
       _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+    }
+  }
+}
+
+impl Diff for Kind {
+  fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
+    if *self != *rhs {
+      Difference::Node(
+        Some((format!("{}", self), format!("{}", rhs))),
+        HashMap::new(),
+      )
+    } else {
+      Difference::Empty
     }
   }
 }
@@ -177,10 +202,28 @@ unsafe impl Sync for GraphtError {}
 
 unsafe impl Send for GraphtError {}
 
+impl Diff for GraphtError {
+  fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
+    let mut diff = Difference::new();
+    diff += self.kind.diff(&rhs.kind, Some("kind"));
+    diff += self.comment.diff(&rhs.comment, Some("comment"));
+    diff += self.context.diff(&rhs.context, Some("context"));
+
+    match name {
+      Some(name) => {
+        let mut result = Difference::Empty;
+        result.merge(diff, Some(vec![name.to_string()]));
+        result
+      }
+      None => diff,
+    }
+  }
+}
+
 pub trait Comment<T, E> {
   fn comment<C>(self, comment: C) -> Result<T>
   where
-    C: Into<String>;
+    C: Into<String> + Diff;
   fn context<C>(self, ctx: C) -> Result<T>
   where
     C: Display + Debug + Sync + Send + 'static;
@@ -217,6 +260,19 @@ where
         err.context = Some(format!("{:#?}", ctx));
         Err(err)
       }
+    }
+  }
+}
+
+impl<T> From<PoisonError<T>> for GraphtError
+where
+  T: Debug,
+{
+  fn from(err: PoisonError<T>) -> Self {
+    GraphtError {
+      kind: Kind::PoisonError,
+      comment: Some(format!("{:#?}", err)),
+      context: None,
     }
   }
 }

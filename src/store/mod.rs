@@ -7,10 +7,16 @@
 
 /// Organization tools for manipulating a store
 pub mod dataset;
-pub use dataset::DataSet;
+pub use dataset::*;
 
-pub mod index;
-pub use index::*;
+pub mod nodeset;
+pub use nodeset::*;
+
+pub mod edgeset;
+pub use edgeset::*;
+
+// pub mod index;
+// pub use index::*;
 
 pub mod value;
 pub use value::*;

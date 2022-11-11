@@ -4,24 +4,63 @@
 
 use crate::{local::*, utils::*};
 
-use std::{
-  collections::HashMap,
-  ops::{Add, AddAssign},
-};
+use std::ops::{Add, AddAssign};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Stats {
-  /// Total mutations on the nodes
-  pub nodes: Mutations,
-  /// Total mutations on the edges
-  pub edges: Mutations,
-  /// Mutations on the various indices
-  pub indices: IndexStats,
+pub trait Stats: Debug + Clone + PartialEq + Eq + Diff + Add + AddAssign {}
+
+/// CRUD operation statistics created by wrapping existing statistics by mutation type
+#[derive(Debug, Clone, Default)]
+pub struct CrudResultStats<T>
+where
+  T: Stats + Add<Output = T> + Default,
+{
+  created: Option<T>,
+  updated: Option<T>,
+  deleted: Option<T>,
+  errors: Vec<crate::errors::GraphtError>,
 }
 
-impl Stats {
-  pub fn new() -> Stats {
-    Stats::default()
+impl<T> CrudResultStats<T>
+where
+  T: Stats + Add<Output = T> + Default,
+{
+  pub fn new() -> CrudResultStats<T> {
+    CrudResultStats {
+      created: None,
+      updated: None,
+      deleted: None,
+      errors: Vec::new(),
+    }
+  }
+
+  pub fn created(&self) -> Option<T> {
+    self.created.clone()
+  }
+
+  pub fn add_created(&mut self, stats: T) {
+    if let Some(s) = &mut self.created {
+      *s += stats;
+    }
+  }
+
+  pub fn updated(&self) -> Option<T> {
+    self.updated.clone()
+  }
+
+  pub fn add_updated(&mut self, stats: T) {
+    if let Some(s) = &mut self.updated {
+      *s += stats;
+    }
+  }
+
+  pub fn deleted(&self) -> Option<T> {
+    self.deleted.clone()
+  }
+
+  pub fn add_deleted(&mut self, stats: T) {
+    if let Some(s) = &mut self.deleted {
+      *s += stats;
+    }
   }
 
   /// Diff two sets of stats and throw an error if they are not the same
@@ -30,13 +69,80 @@ impl Stats {
   pub fn assert_eq(&self, rhs: &Self) {
     let diff = self.diff(&rhs, None);
     if let Difference::Node(_, _) = diff {
-      panic!(
-        "The two sets of stats had the following differences: {:?}",
+      error!(
+        "The two sets of stats had the following differences:\n{}",
         diff
-      )
+      );
+      panic!()
     }
   }
 }
+
+impl<T> Add for CrudResultStats<T>
+where
+  T: Stats + Add<Output = T> + Default,
+{
+  type Output = Self;
+
+  fn add(self, rhs: Self) -> Self::Output {
+    let created = match (self.created, rhs.created) {
+      (None, None) => None,
+      (Some(x), None) => Some(x),
+      (None, Some(y)) => Some(y),
+      (Some(x), Some(y)) => Some(x + y),
+    };
+
+    let updated = match (self.updated, rhs.updated) {
+      (None, None) => None,
+      (Some(x), None) => Some(x),
+      (None, Some(y)) => Some(y),
+      (Some(x), Some(y)) => Some(x + y),
+    };
+
+    let deleted = match (self.deleted, rhs.deleted) {
+      (None, None) => None,
+      (Some(x), None) => Some(x),
+      (None, Some(y)) => Some(y),
+      (Some(x), Some(y)) => Some(x + y),
+    };
+
+    let mut errors = self.errors.clone();
+    errors.extend(rhs.errors);
+
+    Self {
+      created,
+      updated,
+      deleted,
+      errors,
+    }
+  }
+}
+
+impl<T> AddAssign for CrudResultStats<T>
+where
+  T: Stats + Add<Output = T> + Default,
+{
+  fn add_assign(&mut self, rhs: Self) {
+    *self = self.clone().add(rhs);
+  }
+}
+
+impl<T> Diff for CrudResultStats<T>
+where
+  T: Stats + Add<Output = T> + Diff + Default,
+{
+  fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
+    let mut diff = Difference::new();
+    diff += self.created.diff(&rhs.created, Some("created"));
+    diff += self.updated.diff(&rhs.updated, Some("updated"));
+    diff += self.deleted.diff(&rhs.deleted, Some("deleted"));
+    diff += self.errors.diff(&rhs.errors, Some("failed"));
+
+    diff
+  }
+}
+
+/*
 
 impl Add for Stats {
   type Output = Self;
@@ -62,6 +168,10 @@ impl Diff for Stats {
     diff += self.nodes.diff(&rhs.nodes, Some("nodes"));
     diff += self.edges.diff(&rhs.edges, Some("edges"));
     diff += self.indices.diff(&rhs.indices, Some("indices"));
+
+    if diff.is_empty() {
+      return Difference::Empty;
+    }
 
     match name {
       Some(name) => {
@@ -122,6 +232,11 @@ impl Diff for Mutations {
     diff += self.updated.diff(&rhs.updated, Some("updated"));
     diff += self.deleted.diff(&rhs.deleted, Some("deleted"));
 
+    // If there is no change, it shouldn't need to do anything else
+    if let Difference::Empty = diff {
+      return diff;
+    }
+
     match name {
       Some(name) => {
         let mut result = Difference::Empty;
@@ -138,6 +253,12 @@ pub struct IndexStats {
   pub nodes: NodeStats,
   pub edges: EdgeStats,
   pub labels: LabelStats,
+}
+
+impl IndexStats {
+  pub fn new() -> IndexStats {
+    IndexStats::default()
+  }
 }
 
 impl Add for IndexStats {
@@ -172,13 +293,19 @@ impl Diff for IndexStats {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NodeStats {
   /// A breakdown of counts by type
+  total: Mutations,
   types: HashMap<String, Mutations>,
+  // Properties
+  // Labels
 }
 
 impl Add for NodeStats {
   type Output = Self;
 
   fn add(self, rhs: Self) -> Self::Output {
+    let mut total = self.total.clone();
+    total += rhs.total;
+
     let mut types = self.types.clone();
     for (key, value) in rhs.types.iter() {
       if let Some(lhs) = types.get_mut(key) {
@@ -187,13 +314,14 @@ impl Add for NodeStats {
         let _ = types.insert(key.clone(), value.clone());
       }
     }
-    Self { types }
+    Self { total, types }
   }
 }
 
 impl Diff for NodeStats {
   fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
     let mut diff = Difference::new();
+    diff += self.total.diff(&rhs.total, Some("total"));
     diff += self.types.diff(&rhs.types, None);
 
     match name {
@@ -286,3 +414,4 @@ impl Diff for LabelStats {
     }
   }
 }
+ */

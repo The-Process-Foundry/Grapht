@@ -62,20 +62,12 @@ where
 /// Definitions for how to build the given index
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Index {
-  /// Simple string stored in a Graph DB as a label on both nodes and edges
-  ///
-  /// A match using strict equality
-  Label(String),
-
-  /// A string that defines a type of edge
-  Edge(String),
-
-  /// An ephemeral value, temporarily grouping together of nodes and edges
+  /// An ephemeral label, temporarily grouping together of nodes and edges in memory
   Tag(String),
 
   /// An ordered list of nodes based on a comparison criteria.
   Sorted(String),
-  // A cache that can be used for storing subsets that match a piece of a query
+  // A cache that can be used for optionally storing subsets that match a piece of a query
   // QueryFragment(QueryFragment),
 
   // A binary search tree of characters, where the search string is
@@ -190,7 +182,25 @@ where
   }
 
   pub fn stats(&self) -> IndexStats {
-    todo!("Index Stats")
+    let mut stats = IndexStats::new();
+    // Iterate through each lookup and gather the stats from it
+    for (index, lookup) in self.lookups {
+      match index {
+        Index::Edge(name) => match stats.edges.entry(name) {
+          Entry::Vacant(entry) => {
+            let mut edges = Mutations::new();
+            edges.created = lookup.len() as u128;
+            let _ = entry.insert(edges);
+          }
+          Entry::Occupied(entry) => {
+            let mut edges = entry.get_mut();
+            *edges.created = lookup.len() as u128;
+          }
+        },
+        _ => todo!("Only Index is available for stats right now"),
+      }
+    }
+    stats
   }
 }
 

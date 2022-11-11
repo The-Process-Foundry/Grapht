@@ -1,13 +1,27 @@
 //! A wrapper for scanning, indexing, querying, and mutating items in a graph
 //!
+//! All DataSets
+//!
+//! THINK:
+//! - How do datasets relate? When updating a node, how do all the other datasets receive an
+//!   update? Idea: Maybe link each set to the root set and then push changes to the children?
+//! - Memory Issues?
+//!   - Store all nodes/edges in a vec and map to the index as opposed to cloning the Arc? This is a
+//!     memory footprint issue
+//!
 //! TODO:
 //! - Ordered subsets
 //! - get_mut/update: Create a trait for getting a node from the set with a commit() function that
 //!   automatically pushes a patch into the set
+//! - Research/Add benchmarking to test optimizations
+//! - Lazy indices (build on demand)
 
 use crate::{local::*, prelude::*};
 
-use std::collections::{hash_map::Entry, HashMap}; // , VecDeque};
+use std::{
+  collections::HashMap,
+  ops::{Add, AddAssign},
+}; // , VecDeque};
 
 // use sync::{
 //   mpsc::{channel, Sender},
@@ -25,11 +39,13 @@ where
   guid: Uuid,
 
   /// All the vertices known to this set mapped by its guid
-  nodes: HashMap<Uuid, Node<G>>,
+  nodes: NodeSet<G>,
 
-  /// Pointers for ordering and subsets
-  /// FIXME: This needs to be more flexible
-  indices: Indices<G>,
+  /// All the vertices known to this set mapped by its guid
+  edges: EdgeSet<G>,
+
+  // / Generic indices which apply to any/all of the values in the DataSet
+  // indices: Indices<G>,
 
   // -----    Thinking/YAGNI items
   /// Statistics about the current DataSet
@@ -60,8 +76,9 @@ where
   pub fn new() -> DataSet<G> {
     DataSet {
       guid: Uuid::new_v4(),
-      nodes: HashMap::new(),
-      indices: Indices::new(),
+      nodes: NodeSet::new(),
+      edges: EdgeSet::new(),
+      // indices: Indices::new(),
       _stats: (),
       _diff: (),
     }
@@ -83,7 +100,7 @@ where
   /// Return a list of all the nodes included in the DataSet
   pub fn nodes(&self, _query: &str) -> GraphtResult<Vec<Node<G>>> {
     let mut matches = Vec::new();
-    for node in self.nodes.values() {
+    for node in self.nodes.into_iter() {
       matches.push(node.clone())
     }
     Ok(matches)
@@ -102,8 +119,11 @@ where
   ///   change? (use/update Patchwork library)
   /// - How are updated nodes handled?
   /// - If an edge is added,
-  pub fn insert(&mut self, value: Value<G>) -> GraphtResult<Stats> {
-    let mut stats = Stats::new();
+  ///
+  /// FIXME:
+  /// - When edges are added to the
+  pub fn insert(&mut self, value: Value<G>) -> GraphtResult<CrudResultStats<DataSetStats>> {
+    let mut stats = CrudResultStats::<DataSetStats>::new();
 
     // To protect against stack overflows during recursion, we use a while loop containing all the
     // new nodes
@@ -121,15 +141,21 @@ where
       match value {
         // Only need to add the one node
         Value::Node(node) => {
-          match self.insert_node(node.clone()) {
+          // Insert the node
+          match self.nodes.insert(&node) {
+            // TODO: This is where we need to check if the items are actually different
             Err(err) => match err.is(Kind::DuplicateKey) {
               true => continue,
               false => return Err(err),
             },
-            Ok(value_stats) => stats += value_stats,
-          };
+            Ok(value_stats) => {
+              if let Some(values) = value_stats.created() {
+                stats.add_created(values.into());
+              }
+            }
+          }
 
-          // Add the target and each edge
+          // Add the edge and it's target for processing
           for edge in node.edges("") {
             unprocessed.push(edge.get_target().into());
             unprocessed.push(edge.into())
@@ -138,8 +164,7 @@ where
 
         Value::Edge(edge) => {
           // Skip if the edge already exists if the edge already exists.
-          let index = Index::Edge(edge.get_type_label());
-          if self.indices.contains(&index, &edge.get_guid()) {
+          if self.edges.contains(&edge.get_guid()) {
             debug!(
               "Skipping repeat edge {} {}",
               edge.get_type_label(),
@@ -148,19 +173,36 @@ where
             continue;
           };
 
+          // Add the target to be processed
+          let target = edge.get_target();
+          unprocessed.push(target.into());
+
           // Add the edge to the source node if it exists, otherwise just add to unprocessed
           let source = edge.get_source();
           match self.nodes.get(&source.get_guid()) {
             Some(node) => {
-              let mut node = node.clone();
-              node.add_edge(edge.clone())?;
-              self.update_node_unchecked(node.clone())?;
+              debug!("Adding the edge to the source node");
+              if let Err(err) = node.add_edge(edge.clone()) {
+                match err.is(Kind::DuplicateKey) {
+                  true => {
+                    debug!("Couldn't add the edge because it already known by the node");
+                    continue;
+                  }
+                  false => return Err(err),
+                }
+              };
+
+              // self.update_node_unchecked(node.clone())?;
             }
             None => {
               unprocessed.push(source.into());
               continue;
             }
           };
+          debug!(
+            "Finished adding the edge. Still have {} unprocessed",
+            unprocessed.len()
+          );
         }
 
         // Simply convert the path to edges and trailing node and let it be processed normally
@@ -170,55 +212,65 @@ where
     Ok(stats)
   }
 
-  /// Insert a single node into the graph
-  pub fn insert_node(&mut self, node: Node<G>) -> GraphtResult<Stats> {
-    let mut stats = Stats::new();
-    match self.nodes.entry(node.get_guid()) {
-      Entry::Vacant(entry) => {
-        entry.insert(node.clone());
-        stats.nodes.created = 1;
-      }
-      Entry::Occupied(_) => {
-        return Err(err!(
-          DuplicateKey,
-          "Node with Uuid {} already exists in the graph {}",
-          node.get_guid(),
-          self.guid
-        ))
-      }
-    };
+  // /// Insert a single node into the graph
+  // pub fn insert_node(&mut self, node: Node<G>) -> GraphtResult<Stats> {
+  //   let mut stats = Stats::new();
+  //   match self.nodes.entry(node.get_guid()) {
+  //     Entry::Vacant(entry) => {
+  //       debug!("Vacant node");
+  //       let mut node = node.deep_clone()?;
+  //       node.set_bound(true);
+  //       entry.insert(node);
+  //       stats.nodes.created = 1;
+  //     }
+  //     Entry::Occupied(_) => {
+  //       return Err(err!(
+  //         DuplicateKey,
+  //         "Node with Uuid {} already exists in the graph {}",
+  //         node.get_guid(),
+  //         self.guid
+  //       ));
+  //     }
+  //   };
 
-    stats += self.indices.index_value(Value::Node(node))?;
-    Ok(stats)
-  }
+  //   stats += self.indices.index_value(Value::Node(node))?;
+  //   Ok(stats)
+  // }
 
-  /// Update the properties, edges, and indices of a node and return the stats of the changes
-  pub fn update_node(&mut self, _node: Node<G>) -> GraphtResult<Stats> {
-    todo!()
-  }
+  // /// Update the properties, edges, and indices of a node and return the stats of the changes
+  // pub fn update_node(&mut self, _node: Node<G>) -> GraphtResult<Stats> {
+  //   todo!()
+  // }
 
-  /// Replace an existing node with the current one without internal validation
-  pub(crate) fn update_node_unchecked(&mut self, node: Node<G>) -> GraphtResult<()> {
-    // let mut stats = Stats::new();
-    match self.nodes.entry(node.get_guid()) {
-      Entry::Vacant(_) => {
-        return Err(err!(
-          NotFound,
-          "Could not get Node with Uuid {} in the graph {} for updating",
-          node.get_guid(),
-          self.guid
-        ))
-      }
-      Entry::Occupied(mut entry) => {
-        entry.insert(node.clone());
-      }
-    };
-    Ok(())
-  }
+  // /// Replace an existing node with the current one without internal validation
+  // pub(crate) fn update_node_unchecked(&mut self, node: Node<G>) -> GraphtResult<()> {
+  //   debug!("Updating the node, unchecked");
+  //   // let mut stats = Stats::new();
+  //   match self.nodes.entry(node.get_guid()) {
+  //     Entry::Vacant(_) => {
+  //       return Err(err!(
+  //         NotFound,
+  //         "Could not get Node with Uuid {} in the graph {} for updating",
+  //         node.get_guid(),
+  //         self.guid
+  //       ))
+  //     }
+  //     Entry::Occupied(mut entry) => {
+  //       debug!("Found it occupied. Cloning and inserting");
+  //       // FIXME: This needs to be much more granular than a simple replacement, since the indices
+  //       // won't be updated
+  //       let mut node = node.deep_clone()?;
+  //       node.set_bound(true);
+  //       entry.insert(node);
+  //     }
+  //   };
+  //   Ok(())
+  // }
 
-  pub fn stats(&self) -> Stats {
-    let mut stats = Stats::default();
-    stats.nodes.created = self.nodes.len() as u128;
+  pub fn stats(&self) -> DataSetStats {
+    let mut stats = DataSetStats::default();
+    stats.nodes = self.nodes.stats();
+    stats.edges = self.edges.stats();
 
     stats
   }
@@ -231,11 +283,69 @@ where
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("DataSet")
       .field("guid", &self.guid)
-      .field("nodes", &self.nodes.len())
-      .field("indices", &format!("{}", self.indices))
+      .field("nodes", &self.nodes.stats())
+      // .field("indices", &format!("{}", self.indices))
       .finish()
   }
 }
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DataSetStats {
+  nodes: NodeStats,
+  edges: EdgeStats,
+}
+
+impl DataSetStats {
+  pub fn new() -> DataSetStats {
+    DataSetStats {
+      nodes: NodeStats::new(),
+      edges: EdgeStats::new(),
+    }
+  }
+}
+
+impl Add for DataSetStats {
+  type Output = Self;
+
+  fn add(self, rhs: Self) -> Self::Output {
+    DataSetStats {
+      nodes: self.nodes + rhs.nodes,
+      edges: self.edges + rhs.edges,
+    }
+  }
+}
+
+impl AddAssign for DataSetStats {
+  fn add_assign(&mut self, rhs: Self) {
+    *self = self.clone().add(rhs);
+  }
+}
+
+impl Diff for DataSetStats {
+  fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
+    todo!()
+  }
+}
+
+impl From<NodeStats> for DataSetStats {
+  fn from(nodes: NodeStats) -> Self {
+    DataSetStats {
+      nodes,
+      edges: EdgeStats::new(),
+    }
+  }
+}
+
+impl From<EdgeStats> for DataSetStats {
+  fn from(edges: EdgeStats) -> Self {
+    DataSetStats {
+      nodes: NodeStats::new(),
+      edges,
+    }
+  }
+}
+
+impl Stats for DataSetStats {}
 
 /*
 #[derive(Clone, Debug)]

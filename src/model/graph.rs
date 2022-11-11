@@ -13,12 +13,12 @@ pub trait Graph: Debug + Clone + PartialEq {
   /// - Testing data
   /// - Example code build on top of a graph
   /// - Normalizing system constants
-  fn bootstrap(_data_set: &mut DataSet<Self>) -> GraphtResult<Stats> {
+  fn bootstrap(_data_set: &mut DataSet<Self>) -> GraphtResult<CrudResultStats<DataSetStats>> {
     warn!(
       "There is no bootstrap required for Graph {:?}",
       std::any::type_name::<Self>()
     );
-    Ok(Stats::new())
+    Ok(CrudResultStats::new())
   }
 }
 

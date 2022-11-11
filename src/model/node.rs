@@ -1,4 +1,6 @@
 //! Implementation of a node in a graph
+//!
+//!
 
 use crate::{local::*, prelude::*};
 use sync::{Arc, RwLock};
@@ -10,31 +12,18 @@ use std::collections::{
 
 use uuid::Uuid;
 
-// pub trait GraphtNode: Into<Node<Self>> + Clone {
-//   /// This is the full set of edges available to the node
-//   type Edges: GraphtEdge;
-
-//   fn get_guid(&self) -> Uuid;
-
-//   fn get_type_label(&self) -> String;
-
-//   /// Convert the properties into a JSON type string
-//   fn to_gql(&self) -> String;
-
-//   /// Take the result of a query and convert it back into a node
-//   fn from_gql(_value: &str) -> Self {
-//     todo!("from_gql isn't written yet")
-//   }
-// }
-
 /// A record in a graph
 #[derive(Debug, Clone)]
 pub struct Node<G>
 where
   G: Graph,
 {
+  /// A unique ID to lookup and verify the node
   guid: Uuid,
 
+  /// The node's data payload
+  ///
+  /// This conserves space and allows the node to appear in multiple datasets.
   inner: Arc<RwLock<InnerNode<G>>>,
 }
 
@@ -56,6 +45,15 @@ where
       guid: props.get_key(),
       inner: Arc::new(RwLock::new(InnerNode::new(props))),
     }
+  }
+
+  pub(crate) fn set_bound(&mut self, bound: bool) {
+    debug!("Changing bound on Node {} to {}", self.guid, bound);
+    self.inner.write().unwrap().bound = bound
+  }
+
+  pub fn is_bound(&self) -> bool {
+    self.inner.read().unwrap().bound
   }
 
   pub fn get_guid(&self) -> Uuid {
@@ -86,20 +84,62 @@ where
     self.inner.read().unwrap().properties.clone()
   }
 
+  /// Detaches the current copy of the node from the DataSet, so changes don't propagate
+  ///
+  /// Clones the inner value of the node so there is no reference to it outside of the DataSet. As
+  /// nodes are shared in the indices, we want a custom Copy on Write for when a user changes a
+  /// queried node.
+  fn unbind(&mut self) -> GraphtResult<()> {
+    debug!("Unbinding node {} from the DataSet", self.guid);
+
+    // And clone the inner values into a new RwLock
+    let inner = self.inner.read().unwrap();
+
+    let props = Arc::make_mut(&mut inner.properties.clone()).clone();
+    let labels = inner.labels.clone();
+    let edges = inner.edges.clone();
+    drop(inner);
+
+    let new_inner = Arc::new(RwLock::new(InnerNode {
+      bound: false,
+      properties: Arc::new(props),
+      labels,
+      edges,
+    }));
+
+    self.inner = new_inner;
+    Ok(())
+  }
+
+  /// Make a copy of the contents of the node rather than just the pointers
+  ///
+  /// Nodes are meant to be shared in groups, but not globally. We
+  pub fn deep_clone(&self) -> GraphtResult<Node<G>> {
+    let mut new_node = self.clone();
+    new_node.unbind()?;
+    Ok(new_node)
+  }
+
   // ---- Edge/Path functions
   /// Create a relationship between the current node and the target using the given payload
   pub fn create_edge(&mut self, props: G::Edge, target: Node<G>) -> GraphtResult<Edge<G>> {
+    // Copy on write - if the node is bound, we need to clone it so it doesn't make a
+    // mess of the DataSet(s) it belongs to.
+    debug!("Node {} bound is {}", self.guid, self.is_bound());
+
+    self.unbind()?;
+
     // Create the new edge from current node to the target
-    let edge: Edge<G> = Edge::new(&self, &target.into(), props.into());
+    let edge: Edge<G> = Edge::new(self, &target.into(), props.into());
 
     self.add_edge(edge.clone())?;
     Ok(edge)
   }
 
-  pub(crate) fn add_edge(&mut self, edge: Edge<G>) -> GraphtResult<()> {
+  pub(crate) fn add_edge(&self, edge: Edge<G>) -> GraphtResult<()> {
     // Add the new edge to the map by its label
     let mut inner = self.inner.write().unwrap();
-    inner.edges.insert(edge.into())?;
+    inner.edges.insert(&edge.into())?;
     Ok(())
   }
 
@@ -112,9 +152,8 @@ where
       .read()
       .unwrap()
       .edges
-      .all()
-      .iter()
-      .map(|x| x.into())
+      .into_iter()
+      .map(|x| x.clone())
       .collect()
   }
 
@@ -266,6 +305,12 @@ pub(crate) struct InnerNode<G>
 where
   G: Graph,
 {
+  /// Whether the the node has been inserted into a DataSet
+  ///
+  /// This flag acts a bit like copy on write. If bound is true, any mutations will make a clone of
+  /// the inner node before performing the operation.
+  bound: bool,
+
   /// An entity containing the properties assigned to this node
   ///
   /// Using Arc to make sure that it copies on write. Only the graph should be able to modify a
@@ -276,7 +321,7 @@ where
   pub(self) labels: HashSet<String>,
 
   /// A lookup for the edges that have this node as a starting point
-  pub(self) edges: Lookup<G>,
+  pub(self) edges: EdgeSet<G>,
   // Calculations based on the current values of the node and its edges
   // pub(self) aggregates: HashMap<String, Aggregate>,
 }
@@ -291,9 +336,10 @@ where
     let _ = labels.insert(props.get_type_label());
 
     InnerNode {
+      bound: false,
       properties: Arc::new(props),
       labels,
-      edges: Lookup::new(Index::Edge("Self".to_string())),
+      edges: EdgeSet::new(),
     }
   }
 
