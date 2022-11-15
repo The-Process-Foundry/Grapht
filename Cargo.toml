@@ -49,7 +49,7 @@ nom = "7.1.1"
 
 # Language processing w/ example code
 countme = "3.0.1"
-hashbrown = {version = "0.12", features = ["inline-more"], default-features = false}
+hashbrown = {version = "0.13.1", features = ["inline-more"], default-features = false}
 m_lexer = "0.0.4"
 memoffset = "0.7"
 rowan = "0.15.10"

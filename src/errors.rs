@@ -169,6 +169,7 @@ impl Diff for Kind {
     } else {
       Difference::Empty
     }
+    .opt_tag(name)
   }
 }
 

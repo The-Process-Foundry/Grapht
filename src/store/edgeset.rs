@@ -94,7 +94,7 @@ where
   }
 
   /// Updates the original edge with the new edge, updating the internal indices as it goes
-  pub fn update(&mut self, edge: &Edge<G>) -> GraphtResult<EdgeStats> {
+  pub fn update(&mut self, _edge: &Edge<G>) -> GraphtResult<EdgeStats> {
     todo!()
   }
 
@@ -134,9 +134,9 @@ where
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EdgeStats {
   /// A count of the edges
-  total: u128,
-  typed: HashMap<String, u128>,
-  properties: HashMap<String, u128>,
+  pub total: u128,
+  pub typed: HashMap<String, u128>,
+  pub properties: HashMap<String, u128>,
 }
 
 impl EdgeStats {
@@ -151,7 +151,11 @@ impl EdgeStats {
 
 impl Diff for EdgeStats {
   fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
-    todo!()
+    let mut diffs = Difference::new();
+    diffs += self.total.diff(&rhs.total, Some("total"));
+    diffs += self.typed.diff(&rhs.typed, Some("typed"));
+    diffs += self.properties.diff(&rhs.properties, Some("properties"));
+    diffs.opt_tag(name)
   }
 }
 

@@ -144,7 +144,7 @@ where
   }
 
   /// Updates the original node with the new node, updating the internal indices as it goes
-  pub fn update(&mut self, node: &Node<G>) -> GraphtResult<NodeStats> {
+  pub fn update(&mut self, _node: &Node<G>) -> GraphtResult<NodeStats> {
     todo!()
   }
 
@@ -190,10 +190,10 @@ where
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NodeStats {
   /// A count of the nodes
-  total: u128,
-  typed: HashMap<String, u128>,
-  labels: HashMap<String, u128>,
-  properties: HashMap<String, u128>,
+  pub total: u128,
+  pub typed: HashMap<String, u128>,
+  pub labels: HashMap<String, u128>,
+  pub properties: HashMap<String, u128>,
 }
 
 impl NodeStats {
@@ -209,7 +209,12 @@ impl NodeStats {
 
 impl Diff for NodeStats {
   fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
-    todo!()
+    let mut diffs = Difference::new();
+    diffs += self.total.diff(&rhs.total, Some("total"));
+    diffs += self.typed.diff(&rhs.typed, Some("typed"));
+    diffs += self.labels.diff(&rhs.labels, Some("labels"));
+    diffs += self.properties.diff(&rhs.properties, Some("properties"));
+    diffs.opt_tag(name)
   }
 }
 

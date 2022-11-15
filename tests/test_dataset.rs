@@ -1,6 +1,6 @@
 //! Test internal data structures
 
-use grapht::{err, prelude::*};
+use grapht::prelude::*;
 
 #[macro_use]
 mod common;
@@ -48,22 +48,31 @@ db_test_fn! {
     let mut data_set_stats = DataSetStats::default();
 
     // Counts of actions performed by the insert
-    let mut insert_stats = CrudResultStats::<DataSetStats>::default();
+    let insert_stats = CrudResultStats::<DataSetStats>::default();
+
 
     // Data Set is totally empty
-    assert_eq!(data_set.stats(), data_set_stats);
+    data_set_stats.diff(&data_set.stats(), None).assert_empty();
 
     // Create a root org
     info!("   ---> Creating the root node and inserting");
     let mut root: Node<FhlGraph> = node!(
       FhlGraph, Organization, "RootNode", "Ruler of all the Nodes", dec!(0)
     );
-
     root.add_label("RootOrganization");
 
     // And insert it
     let result = data_set.insert(root.clone().into()).expect("Failed to insert the root node");
 
+
+    warn!("\n\n\nBefore DataSetStats:");
+    data_set_stats += DataSetStats::from(r#"
+      nodes {
+        total: 1,
+      }
+    "#);
+
+    warn!("DataSetStats:\n{:?}\n\n\n", data_set_stats);
     // insert_stats.nodes.created = 1;
     // insert_stats.labels.created = 2;
     insert_stats.assert_eq(&result);
@@ -147,7 +156,7 @@ db_test_fn! {
 
 db_test_fn! {
   fn test_create_edges() {
-    let data_set: DataSet<FhlGraph> = DataSet::new();
+    // let data_set: DataSet<FhlGraph> = DataSet::new();
     // let mut expected = Stats::default();
 
     // let orgs = Vec::new();

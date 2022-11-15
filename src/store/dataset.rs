@@ -291,8 +291,8 @@ where
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DataSetStats {
-  nodes: NodeStats,
-  edges: EdgeStats,
+  pub nodes: NodeStats,
+  pub edges: EdgeStats,
 }
 
 impl DataSetStats {
@@ -323,7 +323,10 @@ impl AddAssign for DataSetStats {
 
 impl Diff for DataSetStats {
   fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
-    todo!()
+    let mut diffs = Difference::new();
+    diffs += self.nodes.diff(&rhs.nodes, Some("nodes"));
+    diffs += self.edges.diff(&rhs.edges, Some("edges"));
+    diffs.opt_tag(name)
   }
 }
 
@@ -346,6 +349,147 @@ impl From<EdgeStats> for DataSetStats {
 }
 
 impl Stats for DataSetStats {}
+
+impl From<&str> for DataSetStats {
+  fn from(value: &str) -> Self {
+    use nom::{
+      character::complete::multispace0,
+      character::complete::{alphanumeric1, char, digit1},
+      combinator::opt,
+      error::{Error as NomError, ErrorKind as NomErrorKind, ParseError},
+      multi::fold_many0,
+      sequence::{delimited, preceded, terminated},
+      Err as NomErr, IResult,
+    };
+
+    /// Strip out whitespace and then run the next expected function
+    fn trim<'a, F: 'a, O, E: ParseError<&'a str>>(
+      inner: F,
+    ) -> impl FnMut(&'a str) -> IResult<&'a str, O, E>
+    where
+      F: FnMut(&'a str) -> IResult<&'a str, O, E>,
+    {
+      preceded(multispace0, inner)
+    }
+
+    fn parse_u128(input: &str) -> IResult<&str, u128> {
+      let (remainder, val) = trim(terminated(digit1, trim(opt(char(',')))))(input)?;
+
+      match val.parse() {
+        Err(_err) => Err(NomErr::Error(NomError::new(remainder, NomErrorKind::Fail))),
+        Ok(value) => Ok((remainder, value)),
+      }
+    }
+
+    // /// Treat the block as a map
+    // fn parse_map<'a, F: 'a, O, E: ParseError<&'a str>>(
+    //   inner: F,
+    // ) -> impl FnMut(&'a str) -> IResult<&'a str, O, E> {
+    //   todo!()
+    // }
+
+    /// Contents
+    fn parse_block<'a, F: 'a, O, E: ParseError<&'a str>>(
+      inner: F,
+    ) -> impl FnMut(&'a str) -> IResult<&'a str, O, E>
+    where
+      F: FnMut(&'a str) -> IResult<&'a str, O, E>,
+      O: 'a,
+      E: 'a,
+    {
+      trim(delimited(char('{'), trim(inner), trim(char('}'))))
+    }
+
+    /// Uses a key/value pair to update the value of a field belonging to a mutable object captured
+    /// by the closure
+    fn map_field<'a, F: 'a, O: 'a, E: 'a + ParseError<&'a str>>(
+      mut mapping: F,
+    ) -> impl FnMut(&'a str) -> IResult<&'a str, O, E>
+    where
+      F: 'a + FnMut(&'a str, &'a str) -> IResult<&'a str, O, E>,
+    {
+      move |input: &'a str| {
+        let (remainder, key) = trim(terminated(trim(alphanumeric1), trim(opt(char(':')))))(input)?;
+        info!("Mapped Field: {}", key);
+        mapping(key, remainder)
+      }
+    }
+
+    fn parse_nodes(input: &str) -> IResult<&str, NodeStats> {
+      let mapping = move |key, mut remainder| -> IResult<&str, NodeStats> {
+        let value;
+        info!("Matched NodeSet.{}", key);
+        let mut stats = NodeStats::new();
+        match key {
+          "total" => {
+            (remainder, value) = parse_u128(remainder)?;
+            stats.total = value;
+            debug!("Had value {:?}", value);
+            info!("Stats: {:?}", stats.total);
+          }
+          "typed" => {
+            // parse_block(parse_map)
+            todo!()
+          }
+          "labels" => {
+            todo!()
+            // (remainder, value) = parse_u128(remainder)?;
+            // stats.labels = value;
+          }
+          "properties" => {
+            // (remainder, value) = parse_u128(remainder)?;
+            // stats.properties = value;
+          }
+          x => panic!("Received unknown field for building NodeStats: {:?}", x),
+        }
+
+        Ok((remainder, stats))
+      };
+
+      let (remainder, stats) = trim(fold_many0(
+        map_field(mapping),
+        NodeStats::new,
+        |acc: NodeStats, item| acc + item,
+      ))(input)?;
+      info!("Post Match Stats:\n{:?}", stats);
+
+      Ok((remainder, stats))
+    }
+
+    fn parse_edges(_input: &str) -> IResult<&str, EdgeStats> {
+      todo!()
+    }
+
+    let mapping = |key, mut remainder| -> IResult<&str, DataSetStats> {
+      let (nodes, edges);
+      let mut data_set_stats = DataSetStats::new();
+      match key {
+        "nodes" => {
+          // let (remain, val) = trim(preceded(char('{'), trim(alphanumeric1)))(remainder)?;
+          // debug!("Matched the test {{: {:?}\n{:?}", val, remain);
+
+          (remainder, nodes) = parse_block(parse_nodes)(remainder)?;
+          data_set_stats.nodes = nodes;
+        }
+        "edges" => {
+          (remainder, edges) = parse_block(parse_edges)(remainder)?;
+          data_set_stats.edges = edges;
+        }
+        x => panic!("Received unknown field for building DataSetStats: {:?}", x),
+      }
+
+      Ok((remainder, data_set_stats))
+    };
+
+    let (_remainder, data_set_stats) =
+      fold_many0(map_field(mapping), DataSetStats::new, |stats, item| {
+        stats + item
+      })(value)
+      .expect(&format!("Failed to parse the DataSet from\n{:?}", value));
+
+    data_set_stats
+  }
+}
 
 /*
 #[derive(Clone, Debug)]

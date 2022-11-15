@@ -2,7 +2,7 @@
 //!
 //! This is used both as the result of a query and of a static data set
 
-use crate::{local::*, utils::*};
+use crate::{errors::GraphtError, local::*, utils::*};
 
 use std::ops::{Add, AddAssign};
 
@@ -15,9 +15,10 @@ where
   T: Stats + Add<Output = T> + Default,
 {
   created: Option<T>,
+  read: Option<T>,
   updated: Option<T>,
   deleted: Option<T>,
-  errors: Vec<crate::errors::GraphtError>,
+  errors: Vec<GraphtError>,
 }
 
 impl<T> CrudResultStats<T>
@@ -26,6 +27,7 @@ where
 {
   pub fn new() -> CrudResultStats<T> {
     CrudResultStats {
+      read: None,
       created: None,
       updated: None,
       deleted: None,
@@ -35,6 +37,41 @@ where
 
   pub fn created(&self) -> Option<T> {
     self.created.clone()
+  }
+
+  /// Get the diff of a single subtype of the result stats
+  ///
+  /// Mostly used in testing, as it is easier to manipulate the internal T to match stats than to
+  /// change the individual Options for crud.
+  pub fn diff_crud(&self, crud_type: CrudType, rhs: &T) -> Difference {
+    match crud_type {
+      CrudType::Create => self.created.diff(&Some(rhs.clone()), None),
+      CrudType::Read => self.read.diff(&Some(rhs.clone()), None),
+      CrudType::Update => self.updated.diff(&Some(rhs.clone()), None),
+      CrudType::Delete => self.deleted.diff(&Some(rhs.clone()), None),
+      CrudType::Error => panic!("Cannot use cmp_crud to match errors. Use diff_errors instead"),
+    }
+  }
+
+  /// Check expected errors
+  pub fn diff_errors(&self, rhs: &Vec<GraphtError>) -> Difference {
+    self.errors.diff(rhs, None)
+  }
+
+  pub fn add_crud(&mut self, crud_type: CrudType, rhs: T) {
+    match crud_type {
+      CrudType::Create => self.add_created(rhs),
+      CrudType::Read => self.add_read(rhs),
+      CrudType::Update => self.add_updated(rhs),
+      CrudType::Delete => self.add_deleted(rhs),
+      CrudType::Error => panic!("Cannot use cmp_crud to match errors. Use add_errors instead"),
+    }
+  }
+
+  pub fn add_read(&mut self, stats: T) {
+    if let Some(s) = &mut self.created {
+      *s += stats;
+    }
   }
 
   pub fn add_created(&mut self, stats: T) {
@@ -67,7 +104,7 @@ where
   ///
   /// This is primarily for testing, but handy to have integrated into the live code.
   pub fn assert_eq(&self, rhs: &Self) {
-    let diff = self.diff(&rhs, None);
+    let diff = self.diff(&rhs, None).prune();
     if let Difference::Node(_, _) = diff {
       error!(
         "The two sets of stats had the following differences:\n{}",
@@ -86,6 +123,13 @@ where
 
   fn add(self, rhs: Self) -> Self::Output {
     let created = match (self.created, rhs.created) {
+      (None, None) => None,
+      (Some(x), None) => Some(x),
+      (None, Some(y)) => Some(y),
+      (Some(x), Some(y)) => Some(x + y),
+    };
+
+    let read = match (self.read, rhs.read) {
       (None, None) => None,
       (Some(x), None) => Some(x),
       (None, Some(y)) => Some(y),
@@ -111,6 +155,7 @@ where
 
     Self {
       created,
+      read,
       updated,
       deleted,
       errors,
@@ -131,7 +176,7 @@ impl<T> Diff for CrudResultStats<T>
 where
   T: Stats + Add<Output = T> + Diff + Default,
 {
-  fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
+  fn diff(&self, rhs: &Self, _name: Option<&str>) -> Difference {
     let mut diff = Difference::new();
     diff += self.created.diff(&rhs.created, Some("created"));
     diff += self.updated.diff(&rhs.updated, Some("updated"));
@@ -140,6 +185,14 @@ where
 
     diff
   }
+}
+
+pub enum CrudType {
+  Create,
+  Read,
+  Update,
+  Delete,
+  Error,
 }
 
 /*

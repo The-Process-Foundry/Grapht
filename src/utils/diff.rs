@@ -2,7 +2,6 @@
 //!
 //! TODO:
 //! - Move this to Patchwork/Protean, if not too simplified
-//! - Make a macro to build each primitive
 
 use crate::local::*;
 
@@ -12,6 +11,7 @@ use std::{
   ops::{Add, AddAssign},
 };
 
+/// Simple diffs that always return a value rather than nested children
 macro_rules! primitive_diffs {
   ($ty:ty) => {
     /// Create a diff for primitive $ty
@@ -43,7 +43,7 @@ macro_rules! primitive_diffs {
   }
 }
 
-primitive_diffs!(u128, &str, String);
+primitive_diffs!(u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, f32, f64, &str, String);
 
 // /// A temporary diff for u128. This would be the default, execpt I don't want to require PartialEq
 // /// or Display
@@ -78,6 +78,7 @@ where
       (None, Some(rhs)) => T::default().diff(rhs, None),
       (Some(lhs), Some(rhs)) => lhs.diff(rhs, None),
     }
+    .opt_tag(name)
   }
 }
 
@@ -110,14 +111,8 @@ where
         ),
       }
     }
-    match name {
-      Some(name) => {
-        let mut result = Difference::Empty;
-        result.merge(differences, Some(vec![name.to_string()]));
-        result
-      }
-      None => differences,
-    }
+
+    differences.opt_tag(name)
   }
 }
 
@@ -156,14 +151,7 @@ where
       }
     }
 
-    match name {
-      Some(name) => {
-        let mut result = Difference::Empty;
-        result.merge(differences, Some(vec![name.to_string()]));
-        result
-      }
-      None => differences,
-    }
+    differences.opt_tag(name)
   }
 }
 
@@ -229,9 +217,60 @@ impl Difference {
 
   /// Runs an assert!, doing nothing if the diff is empty and panics with a pretty print if true
   pub fn is_empty(&self) -> bool {
-    match self {
+    let pruned = self.prune();
+    match pruned {
       Difference::Empty => true,
       _ => false,
+    }
+  }
+
+  /// Make sure there was no difference and panics if there was
+  pub fn assert_empty(&self) {
+    let pruned = self.prune();
+    match pruned.is_empty() {
+      true => return,
+      false => panic!("The values had a difference of:\n{:#?}", pruned),
+    }
+  }
+
+  /// A helper to move the root node into a named child, if desired
+  ///
+  /// Since this is mostly used in the diff implementation, we make the name optional so it's
+  /// easier to pass along the parameter than check beforehand
+  pub fn opt_tag(self, name: Option<&str>) -> Difference {
+    match name {
+      Some(name) => self.tag(name),
+      None => self,
+    }
+  }
+
+  /// Creates a new root node with the current node mapped as a named child
+  ///
+  /// Since this is mostly used in the diff definition, we make the name optional so it's easier to
+  /// just pass along the parameter than check beforehand
+  pub fn tag(self, name: &str) -> Difference {
+    Difference::Node(None, HashMap::from([(name.to_string(), Box::new(self))]))
+  }
+
+  /// Traverse the difference tree and remove all empty nodes
+  pub fn prune(&self) -> Difference {
+    match self {
+      Difference::Empty => return self.clone(),
+      Difference::Node(value, mapping) => {
+        let mut non_empty = HashMap::new();
+        // Clear out the map
+        for (key, value) in mapping.iter() {
+          let pruned = value.prune();
+          if !pruned.is_empty() {
+            let _ = non_empty.insert(key.clone(), Box::new(pruned));
+          }
+        }
+
+        match (value.is_none(), non_empty.is_empty()) {
+          (true, true) => Difference::Empty,
+          (_, _) => Difference::Node(value.clone(), non_empty),
+        }
+      }
     }
   }
 }
