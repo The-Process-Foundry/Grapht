@@ -10,6 +10,7 @@ use std::{
   ops::{Add, AddAssign},
 }; // , VecDeque};
 
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A group of nodes and their associated indices
@@ -63,8 +64,10 @@ where
     todo!()
   }
 
-  // Insert the node into the graph and fail if it already exists
+  /// Insert a new node into the graph and fail if it already exists
   pub fn insert(&mut self, node: &Node<G>) -> GraphtResult<CrudResultStats<NodeStats>> {
+    let mut stats = NodeStats::new();
+
     // Make a copy of the node that cannot be directly accessed by calling code
     let mut new_node: Node<G>;
     match self.nodes.entry(node.get_guid()) {
@@ -84,12 +87,11 @@ where
       }
     };
 
-    // Update the stats
-    let mut stats = NodeStats::new();
-    stats.total = 1;
-    self.stats.total += 1;
+    // Update the stats for Node
+    stats.total.increase(1);
+    self.stats.total.increase(1);
 
-    // Clone the node for use with closures
+    // Clone the node for use with closures for indexing the node
     let node = new_node.clone();
     self
       .typed
@@ -102,17 +104,8 @@ where
       })
       .or_insert_with(|| [(node.get_guid(), node.clone())].into());
 
-    stats
-      .labels
-      .entry(node.type_label())
-      .and_modify(|c| *c += 1)
-      .or_insert(1);
-    self
-      .stats
-      .labels
-      .entry(node.type_label())
-      .and_modify(|c| *c += 1)
-      .or_insert(1);
+    stats.typed.increase((node.type_label(), 1));
+    self.stats.typed.increase((node.type_label(), 1));
 
     // Insert labels
     for label in node.get_labels() {
@@ -126,17 +119,8 @@ where
         })
         .or_insert_with(|| [(node.get_guid(), node)].into());
 
-      stats
-        .labels
-        .entry(label.clone())
-        .and_modify(|c| *c += 1)
-        .or_insert(1);
-      self
-        .stats
-        .labels
-        .entry(label)
-        .and_modify(|c| *c += 1)
-        .or_insert(1);
+      stats.labels.increase((label.clone(), 1));
+      self.stats.labels.increase((label.clone(), 1));
     }
     let mut data_set_stats = CrudResultStats::new();
     data_set_stats.add_created(stats);
@@ -154,20 +138,23 @@ where
   }
 
   pub fn stats(&self) -> NodeStats {
-    let mut typed = HashMap::new();
+    let mut total = StatCount::new();
+    total.increase(self.nodes.len() as i128);
+
+    let mut typed = StatMap::new();
     for (key, values) in &self.typed {
-      let _ = typed.insert(key.clone(), values.len() as u128);
+      typed.increase((key.clone(), values.len() as i128));
     }
 
-    let mut labels = HashMap::new();
+    let mut labels = StatMap::new();
     for (key, values) in &self.labels {
-      let _ = labels.insert(key.clone(), values.len() as u128);
+      labels.increase((key.clone(), values.len() as i128));
     }
 
-    let properties = HashMap::new();
+    let properties = StatMap::new();
 
     NodeStats {
-      total: self.nodes.len() as u128,
+      total,
       typed,
       labels,
       properties,
@@ -187,22 +174,35 @@ where
   }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeStats {
   /// A count of the nodes
-  pub total: u128,
-  pub typed: HashMap<String, u128>,
-  pub labels: HashMap<String, u128>,
-  pub properties: HashMap<String, u128>,
+  #[serde(default)]
+  pub total: StatCount,
+
+  /// Counts of nodes sorted by type
+  #[serde(default)]
+  pub typed: StatMap<String, StatCount, <StatCount as Stats>::Item>,
+
+  /// Counts of nodes tagged by a given label
+  #[serde(default)]
+  pub labels: StatMap<String, StatCount, <StatCount as Stats>::Item>,
+
+  /// Counts of distinct property names
+  ///
+  /// These are a holdover from RedisGraph. As Grapht uses explicit types rather than a
+  /// document model, properties don't really change.
+  #[serde(default)]
+  pub properties: StatMap<String, StatCount, <StatCount as Stats>::Item>,
 }
 
 impl NodeStats {
   pub fn new() -> NodeStats {
     NodeStats {
-      total: 0,
-      typed: HashMap::new(),
-      labels: HashMap::new(),
-      properties: HashMap::new(),
+      total: StatCount::new(),
+      typed: StatMap::new(),
+      labels: StatMap::new(),
+      properties: StatMap::new(),
     }
   }
 }
@@ -222,37 +222,11 @@ impl Add for NodeStats {
   type Output = Self;
 
   fn add(self, rhs: Self) -> Self::Output {
-    let total = self.total + rhs.total;
-
-    let mut typed = self.typed;
-    for (key, value) in &rhs.typed {
-      typed
-        .entry(key.clone())
-        .and_modify(|val| *val = *val + value)
-        .or_insert(value.clone());
-    }
-
-    let mut labels = self.labels;
-    for (key, value) in rhs.typed {
-      labels
-        .entry(key)
-        .and_modify(|val| *val = *val + value)
-        .or_insert(value);
-    }
-
-    let mut properties = self.properties;
-    for (key, value) in rhs.properties {
-      properties
-        .entry(key)
-        .and_modify(|val| *val = *val + value)
-        .or_insert(value);
-    }
-
     NodeStats {
-      total,
-      typed,
-      labels,
-      properties,
+      total: self.total + rhs.total,
+      typed: self.typed + rhs.typed,
+      labels: self.labels + rhs.labels,
+      properties: self.properties + rhs.properties,
     }
   }
 }
@@ -263,4 +237,18 @@ impl AddAssign for NodeStats {
   }
 }
 
-impl Stats for NodeStats {}
+impl Stats for NodeStats {
+  type Item = String;
+
+  /// Increase the statistic using the a YAML string
+  fn increase(&mut self, _value: Self::Item) {
+    unimplemented!("'Stats::increase needs to be implemented for NodeStats")
+  }
+
+  fn clear(&mut self) {
+    self.total.clear();
+    self.typed.clear();
+    self.labels.clear();
+    self.properties.clear();
+  }
+}

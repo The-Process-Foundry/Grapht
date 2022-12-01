@@ -60,7 +60,7 @@ mod local {
   // Prefer using core vs std
   pub use core::{
     fmt::{self, Debug, Display},
-    str,
+    hash, str,
   };
 
   // Std vs Tokio sync

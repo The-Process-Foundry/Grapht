@@ -4,20 +4,243 @@
 
 use crate::{errors::GraphtError, local::*, utils::*};
 
-use std::ops::{Add, AddAssign};
+use std::{
+  collections::{hash_map::Entry, HashMap},
+  ops::{Add, AddAssign},
+};
 
-pub trait Stats: Debug + Clone + PartialEq + Eq + Diff + Add + AddAssign {}
+use serde::{Deserialize, Serialize};
 
+/// A value used for tracking activity data
+pub trait Stats: Debug + Clone + PartialEq + Eq + Diff + Add + AddAssign + Default {
+  /// A value that can be used to mutate the statistic
+  ///
+  /// THINK: Does this need to be explicit or can it be inferred?
+  type Item;
+
+  /// Increase the statistic using the value passed in
+  ///
+  /// For example, the simple counter takes an integer and will change by the value passed in
+  fn increase(&mut self, _value: Self::Item) {
+    unimplemented!("'Stats::increase()' still needs to be implemented")
+  }
+
+  /// Reset the statistic to an initial value
+  fn clear(&mut self) {
+    unimplemented!("'Stats::clear()' still needs to be implemented")
+  }
+}
+
+/// A basic counter
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatCount {
+  count: u128,
+}
+
+impl StatCount {
+  pub fn new() -> StatCount {
+    StatCount { count: 0 }
+  }
+
+  /// Increment the counter by 1
+  pub fn incr(&mut self) {
+    self.count += 1;
+  }
+
+  /// Decrement the counter by 1
+  pub fn decr(&mut self) {
+    match self.count > 0 {
+      true => self.count -= 1,
+      false => (),
+    }
+  }
+}
+
+impl Stats for i128 {
+  type Item = i128;
+}
+
+impl Stats for StatCount {
+  type Item = i128;
+
+  fn clear(&mut self) {
+    self.count = 0
+  }
+
+  /// Add/subtract a specific amount
+  fn increase(&mut self, value: Self::Item) {
+    match value > 0 {
+      true => self.count += value as u128,
+      false => {
+        let neg = -value as u128;
+        match neg > self.count {
+          true => self.count = 0,
+          false => self.count -= neg,
+        }
+      }
+    }
+  }
+}
+
+impl Add for StatCount {
+  type Output = Self;
+
+  fn add(self, rhs: Self) -> Self::Output {
+    StatCount {
+      count: self.count + rhs.count,
+    }
+  }
+}
+
+impl AddAssign for StatCount {
+  fn add_assign(&mut self, rhs: Self) {
+    *self = self.clone().add(rhs);
+  }
+}
+
+impl Diff for StatCount {
+  fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
+    self.count.diff(&rhs.count, None).opt_tag(name)
+  }
+}
+
+/// A rolling average
+pub struct StatAverage<T> {
+  _count: u128,
+  _total: f64,
+  _values: Vec<T>,
+}
+
+impl<T> StatAverage<T> {
+  pub fn new() -> StatAverage<T> {
+    StatAverage {
+      _count: 0,
+      _total: 0.0,
+      _values: Vec::new(),
+    }
+  }
+}
+
+/// Grouping stats by a derived value
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatMap<T, U, I>
+where
+  T: Debug + Clone + hash::Hash + Eq,
+  U: Stats<Item = I> + Clone,
+  I: Clone,
+{
+  data: HashMap<T, U>,
+}
+
+impl<T, U, I> StatMap<T, U, I>
+where
+  T: Debug + Display + Clone + hash::Hash + Eq,
+  U: Stats<Item = I> + Clone,
+  I: Clone,
+{
+  pub fn new() -> StatMap<T, U, I> {
+    StatMap {
+      data: HashMap::new(),
+    }
+  }
+}
+
+impl<T, U, I> Stats for StatMap<T, U, I>
+where
+  T: Debug + Clone + hash::Hash + Eq + Display,
+  U: Stats<Item = I> + Add<Output = U> + Clone,
+  I: Clone + Eq + Debug,
+{
+  type Item = (T, I);
+
+  fn increase(&mut self, value: Self::Item) {
+    let (key, item) = value;
+
+    match self.data.entry(key) {
+      Entry::Occupied(mut entry) => entry.get_mut().increase(item),
+      Entry::Vacant(entry) => {
+        let mut value: U = Default::default();
+        value.increase(item);
+        let _ = entry.insert(value);
+      }
+    }
+  }
+
+  fn clear(&mut self) {
+    self.data = HashMap::new()
+  }
+}
+
+impl<T, U, I> Default for StatMap<T, U, I>
+where
+  T: Debug + Display + Clone + hash::Hash + Eq,
+  U: Stats<Item = I> + Default,
+  I: Clone,
+{
+  fn default() -> Self {
+    Self {
+      data: Default::default(),
+    }
+  }
+}
+
+impl<T, U, I> Add for StatMap<T, U, I>
+where
+  T: Debug + Display + Clone + hash::Hash + Eq,
+  U: Stats<Item = I>,
+  I: Clone,
+{
+  type Output = Self;
+
+  fn add(self, rhs: Self) -> Self::Output {
+    let mut data = self.data;
+    for (key, value) in &rhs.data {
+      data
+        .entry(key.clone())
+        .and_modify(|val| *val += value.clone())
+        .or_insert(value.clone());
+    }
+
+    StatMap { data }
+  }
+}
+
+impl<T, U, I> AddAssign for StatMap<T, U, I>
+where
+  T: Debug + Display + Clone + hash::Hash + Eq,
+  U: Stats<Item = I> + Add<Output = U>,
+  I: Clone,
+{
+  fn add_assign(&mut self, rhs: Self) {
+    *self = self.clone() + rhs;
+  }
+}
+
+impl<T, U, I> Diff for StatMap<T, U, I>
+where
+  T: Debug + Display + Clone + hash::Hash + Eq,
+  U: Stats<Item = I> + Default,
+  I: Clone,
+{
+  fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
+    self.data.diff(&rhs.data, name)
+  }
+}
 /// CRUD operation statistics created by wrapping existing statistics by mutation type
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CrudResultStats<T>
 where
   T: Stats + Add<Output = T> + Default,
 {
+  #[serde(default)]
   created: Option<T>,
+  #[serde(default)]
   read: Option<T>,
+  #[serde(default)]
   updated: Option<T>,
+  #[serde(default)]
   deleted: Option<T>,
+  #[serde(default)]
   errors: Vec<GraphtError>,
 }
 
@@ -71,12 +294,16 @@ where
   pub fn add_read(&mut self, stats: T) {
     if let Some(s) = &mut self.created {
       *s += stats;
+    } else {
+      self.read = Some(stats);
     }
   }
 
   pub fn add_created(&mut self, stats: T) {
     if let Some(s) = &mut self.created {
       *s += stats;
+    } else {
+      self.created = Some(stats);
     }
   }
 
@@ -87,6 +314,8 @@ where
   pub fn add_updated(&mut self, stats: T) {
     if let Some(s) = &mut self.updated {
       *s += stats;
+    } else {
+      self.updated = Some(stats);
     }
   }
 
@@ -97,6 +326,8 @@ where
   pub fn add_deleted(&mut self, stats: T) {
     if let Some(s) = &mut self.deleted {
       *s += stats;
+    } else {
+      self.deleted = Some(stats);
     }
   }
 
@@ -168,7 +399,7 @@ where
   T: Stats + Add<Output = T> + Default,
 {
   fn add_assign(&mut self, rhs: Self) {
-    *self = self.clone().add(rhs);
+    *self = self.clone().add(rhs)
   }
 }
 
@@ -194,277 +425,3 @@ pub enum CrudType {
   Delete,
   Error,
 }
-
-/*
-
-impl Add for Stats {
-  type Output = Self;
-
-  fn add(self, rhs: Self) -> Self::Output {
-    Self {
-      nodes: self.nodes + rhs.nodes,
-      edges: self.edges + rhs.edges,
-      indices: self.indices + rhs.indices,
-    }
-  }
-}
-
-impl AddAssign for Stats {
-  fn add_assign(&mut self, rhs: Self) {
-    *self = self.clone().add(rhs);
-  }
-}
-
-impl Diff for Stats {
-  fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
-    let mut diff = Difference::new();
-    diff += self.nodes.diff(&rhs.nodes, Some("nodes"));
-    diff += self.edges.diff(&rhs.edges, Some("edges"));
-    diff += self.indices.diff(&rhs.indices, Some("indices"));
-
-    if diff.is_empty() {
-      return Difference::Empty;
-    }
-
-    match name {
-      Some(name) => {
-        let mut result = Difference::Empty;
-        result.merge(diff, Some(vec![name.to_string()]));
-        result
-      }
-      None => diff,
-    }
-  }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Mutations {
-  // The total number of items that were touched but left alone
-  pub unchanged: u128,
-
-  // Total number of items created
-  pub created: u128,
-
-  // Total number of items created
-  pub updated: u128,
-
-  // Total number of items deleted
-  pub deleted: u128,
-}
-
-impl Mutations {
-  pub fn new() -> Mutations {
-    Mutations::default()
-  }
-}
-
-impl Add for Mutations {
-  type Output = Self;
-
-  fn add(self, rhs: Self) -> Self::Output {
-    Self {
-      unchanged: self.unchanged + rhs.unchanged,
-      created: self.created + rhs.created,
-      updated: self.updated + rhs.updated,
-      deleted: self.deleted + rhs.deleted,
-    }
-  }
-}
-
-impl AddAssign for Mutations {
-  fn add_assign(&mut self, rhs: Self) {
-    *self = self.clone().add(rhs);
-  }
-}
-
-impl Diff for Mutations {
-  fn diff(&self, rhs: &Mutations, name: Option<&str>) -> Difference {
-    let mut diff = Difference::new();
-    diff += self.unchanged.diff(&rhs.unchanged, Some("unchanged"));
-    diff += self.created.diff(&rhs.created, Some("created"));
-    diff += self.updated.diff(&rhs.updated, Some("updated"));
-    diff += self.deleted.diff(&rhs.deleted, Some("deleted"));
-
-    // If there is no change, it shouldn't need to do anything else
-    if let Difference::Empty = diff {
-      return diff;
-    }
-
-    match name {
-      Some(name) => {
-        let mut result = Difference::Empty;
-        result.merge(diff, Some(vec![name.to_string()]));
-        result
-      }
-      None => diff,
-    }
-  }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct IndexStats {
-  pub nodes: NodeStats,
-  pub edges: EdgeStats,
-  pub labels: LabelStats,
-}
-
-impl IndexStats {
-  pub fn new() -> IndexStats {
-    IndexStats::default()
-  }
-}
-
-impl Add for IndexStats {
-  type Output = Self;
-
-  fn add(self, rhs: Self) -> Self::Output {
-    Self {
-      nodes: self.nodes + rhs.nodes,
-      edges: self.edges + rhs.edges,
-      labels: self.labels + rhs.labels,
-    }
-  }
-}
-
-impl Diff for IndexStats {
-  fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
-    let mut diff = Difference::new();
-    diff += self.nodes.diff(&rhs.nodes, Some("nodes"));
-
-    match name {
-      Some(name) => {
-        let mut result = Difference::Empty;
-        result.merge(diff, Some(vec![name.to_string()]));
-        result
-      }
-      None => diff,
-    }
-  }
-}
-
-/// Information about the nodes that are being watched
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct NodeStats {
-  /// A breakdown of counts by type
-  total: Mutations,
-  types: HashMap<String, Mutations>,
-  // Properties
-  // Labels
-}
-
-impl Add for NodeStats {
-  type Output = Self;
-
-  fn add(self, rhs: Self) -> Self::Output {
-    let mut total = self.total.clone();
-    total += rhs.total;
-
-    let mut types = self.types.clone();
-    for (key, value) in rhs.types.iter() {
-      if let Some(lhs) = types.get_mut(key) {
-        *lhs += value.clone();
-      } else {
-        let _ = types.insert(key.clone(), value.clone());
-      }
-    }
-    Self { total, types }
-  }
-}
-
-impl Diff for NodeStats {
-  fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
-    let mut diff = Difference::new();
-    diff += self.total.diff(&rhs.total, Some("total"));
-    diff += self.types.diff(&rhs.types, None);
-
-    match name {
-      Some(name) => {
-        let mut result = Difference::Empty;
-        result.merge(diff, Some(vec![name.to_string()]));
-        result
-      }
-      None => diff,
-    }
-  }
-}
-
-/// Information about the edges that are connecting the nodes
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct EdgeStats {
-  /// A breakdown of counts by type
-  types: HashMap<String, Mutations>,
-}
-
-impl Add for EdgeStats {
-  type Output = Self;
-
-  fn add(self, rhs: Self) -> Self::Output {
-    let mut types = self.types.clone();
-    for (key, value) in rhs.types.iter() {
-      if let Some(lhs) = types.get_mut(key) {
-        *lhs += value.clone();
-      } else {
-        let _ = types.insert(key.clone(), value.clone());
-      }
-    }
-    Self { types }
-  }
-}
-
-impl Diff for EdgeStats {
-  fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
-    let diff = self.types.diff(&rhs.types, None);
-    match name {
-      Some(name) => {
-        let mut result = Difference::Empty;
-        result.merge(diff, Some(vec![name.to_string()]));
-        result
-      }
-      None => diff,
-    }
-  }
-}
-
-/// Counts of tags and labels
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct LabelStats {
-  pub total: Mutations,
-  pub labels: HashMap<String, Mutations>,
-}
-
-impl Add for LabelStats {
-  type Output = Self;
-
-  fn add(self, rhs: Self) -> Self::Output {
-    let mut labels = self.labels.clone();
-    for (key, value) in rhs.labels.iter() {
-      if let Some(lhs) = labels.get_mut(key) {
-        *lhs += value.clone();
-      } else {
-        let _ = labels.insert(key.clone(), value.clone());
-      }
-    }
-    Self {
-      total: self.total + rhs.total,
-      labels,
-    }
-  }
-}
-
-impl Diff for LabelStats {
-  fn diff(&self, rhs: &Self, name: Option<&str>) -> Difference {
-    let mut diff = Difference::new();
-    diff += self.total.diff(&rhs.total, Some("total"));
-    diff += self.labels.diff(&rhs.labels, Some("labels"));
-
-    match name {
-      Some(name) => {
-        let mut result = Difference::Empty;
-        result.merge(diff, Some(vec![name.to_string()]));
-        result
-      }
-      None => diff,
-    }
-  }
-}
- */

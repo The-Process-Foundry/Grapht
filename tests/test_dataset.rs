@@ -48,7 +48,7 @@ db_test_fn! {
     let mut data_set_stats = DataSetStats::default();
 
     // Counts of actions performed by the insert
-    let insert_stats = CrudResultStats::<DataSetStats>::default();
+    let mut insert_stats = CrudResultStats::<DataSetStats>::default();
 
 
     // Data Set is totally empty
@@ -65,23 +65,30 @@ db_test_fn! {
     let result = data_set.insert(root.clone().into()).expect("Failed to insert the root node");
 
 
-    warn!("\n\n\nBefore DataSetStats:");
-    data_set_stats += DataSetStats::from(r#"
-      nodes {
-        total: 1,
-      }
-    "#);
+    data_set_stats += DataSetStats::from_yaml(r#"
+      nodes:
+        total: 1
+        "#).expect("Deserialization error");
 
-    warn!("DataSetStats:\n{:?}\n\n\n", data_set_stats);
-    // insert_stats.nodes.created = 1;
-    // insert_stats.labels.created = 2;
+    insert_stats.add_created(
+      DataSetStats::from_yaml(r#"
+      nodes:
+        total: 1
+        typed:
+          Organization: 1
+        labels:
+          RootOrganization: 1
+      "#).expect("Deserialization error")
+    );
+    info!("Expected InsertStats:\n{:?}", insert_stats);
+    info!("Actual InsertStats:\n{:?}", result);
     insert_stats.assert_eq(&result);
 
     // data_set_stats.nodes.created = 1;
     // data_set_stats.labels.created = 2;
     // data_set_stats.assert_eq(&data_set.stats());
 
-    info!("  --->Attempting to insert the root node a second time");
+    info!("\n\n  --->Attempting to insert the root node a second time");
     let result = data_set.insert(root.clone().into()).expect("Failed to insert the root node");
 
     // insert_stats.nodes.created = 0;

@@ -108,7 +108,7 @@ pub enum Kind {
   #[error("Could not convert between data types")]
   ConversionError,
 
-  #[error("Could not serialize the given object")]
+  #[error("Could not serialize/deserialize the given object")]
   SerializationError,
 
   #[error("Error generated from within Grapht")]
@@ -302,6 +302,26 @@ impl From<std::io::Error> for GraphtError {
   fn from(err: std::io::Error) -> GraphtError {
     GraphtError {
       kind: Kind::Io,
+      comment: None,
+      context: Some(format!("{:#?}", err)),
+    }
+  }
+}
+
+impl From<serde_json::Error> for GraphtError {
+  fn from(err: serde_json::Error) -> GraphtError {
+    GraphtError {
+      kind: Kind::SerializationError,
+      comment: None,
+      context: Some(format!("{:#?}", err)),
+    }
+  }
+}
+
+impl From<serde_yaml::Error> for GraphtError {
+  fn from(err: serde_yaml::Error) -> GraphtError {
+    GraphtError {
+      kind: Kind::SerializationError,
       comment: None,
       context: Some(format!("{:#?}", err)),
     }

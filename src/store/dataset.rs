@@ -23,6 +23,8 @@ use std::{
   ops::{Add, AddAssign},
 }; // , VecDeque};
 
+use serde::{Deserialize, Serialize};
+
 // use sync::{
 //   mpsc::{channel, Sender},
 //   Arc,
@@ -289,9 +291,11 @@ where
   }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DataSetStats {
+  #[serde(default)]
   pub nodes: NodeStats,
+  #[serde(default)]
   pub edges: EdgeStats,
 }
 
@@ -301,6 +305,14 @@ impl DataSetStats {
       nodes: NodeStats::new(),
       edges: EdgeStats::new(),
     }
+  }
+
+  pub fn from_json(json: &str) -> GraphtResult<DataSetStats> {
+    Ok(serde_json::from_str(json)?)
+  }
+
+  pub fn from_yaml(json: &str) -> GraphtResult<DataSetStats> {
+    Ok(serde_yaml::from_str(json)?)
   }
 }
 
@@ -348,7 +360,9 @@ impl From<EdgeStats> for DataSetStats {
   }
 }
 
-impl Stats for DataSetStats {}
+impl Stats for DataSetStats {
+  type Item = DataSetStats;
+}
 
 impl From<&str> for DataSetStats {
   fn from(value: &str) -> Self {
@@ -423,7 +437,7 @@ impl From<&str> for DataSetStats {
         match key {
           "total" => {
             (remainder, value) = parse_u128(remainder)?;
-            stats.total = value;
+            stats.total.increase(value as i128);
             debug!("Had value {:?}", value);
             info!("Stats: {:?}", stats.total);
           }

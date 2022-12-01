@@ -10,6 +10,7 @@ use std::{
   ops::{Add, AddAssign},
 }; // , VecDeque};
 
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A group of edges and their associated indices
@@ -75,8 +76,8 @@ where
 
     // Update the stats
     let mut stats = EdgeStats::new();
-    stats.total = 1;
-    self.stats.total += 1;
+    stats.total.increase(1);
+    self.stats.total.increase(1);
 
     // Clone the edge for use with closures
     self
@@ -104,15 +105,17 @@ where
   }
 
   pub fn stats(&self) -> EdgeStats {
-    let mut typed = HashMap::new();
+    let mut total = StatCount::new();
+    total.increase(self.edges.len() as i128);
+
+    let mut typed = StatMap::new();
     for (key, values) in &self.typed {
-      let _ = typed.insert(key.clone(), values.len() as u128);
+      typed.increase((key.clone(), values.len() as i128));
     }
 
-    let properties = HashMap::new();
-
+    let properties = StatMap::new();
     EdgeStats {
-      total: self.edges.len() as u128,
+      total,
       typed,
       properties,
     }
@@ -131,20 +134,20 @@ where
   }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EdgeStats {
   /// A count of the edges
-  pub total: u128,
-  pub typed: HashMap<String, u128>,
-  pub properties: HashMap<String, u128>,
+  pub total: StatCount,
+  pub typed: StatMap<String, StatCount, i128>,
+  pub properties: StatMap<String, StatCount, i128>,
 }
 
 impl EdgeStats {
   pub fn new() -> EdgeStats {
     EdgeStats {
-      total: 0,
-      typed: HashMap::new(),
-      properties: HashMap::new(),
+      total: StatCount::new(),
+      typed: StatMap::new(),
+      properties: StatMap::new(),
     }
   }
 }
@@ -163,28 +166,10 @@ impl Add for EdgeStats {
   type Output = Self;
 
   fn add(self, rhs: Self) -> Self::Output {
-    let total = self.total + rhs.total;
-
-    let mut typed = self.typed;
-    for (key, value) in rhs.typed {
-      typed
-        .entry(key)
-        .and_modify(|val| *val = *val + value)
-        .or_insert(value);
-    }
-
-    let mut properties = self.properties;
-    for (key, value) in rhs.properties {
-      properties
-        .entry(key)
-        .and_modify(|val| *val = *val + value)
-        .or_insert(value);
-    }
-
     EdgeStats {
-      total,
-      typed,
-      properties,
+      total: self.total + rhs.total,
+      typed: self.typed + rhs.typed,
+      properties: self.properties + rhs.properties,
     }
   }
 }
@@ -195,4 +180,17 @@ impl AddAssign for EdgeStats {
   }
 }
 
-impl Stats for EdgeStats {}
+impl Stats for EdgeStats {
+  type Item = String;
+
+  /// Increase the statistic using the a YAML string
+  fn increase(&mut self, _value: Self::Item) {
+    unimplemented!("'Stats::increase needs to be implemented for NodeStats")
+  }
+
+  fn clear(&mut self) {
+    self.total.clear();
+    self.typed.clear();
+    self.properties.clear();
+  }
+}
